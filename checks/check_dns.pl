@@ -32,7 +32,7 @@ use Nagios::Plugin::Performance use_die => 1;
 
 my $nagios = Nagios::Plugin->new(
     shortname => "DNS",
-    version => "0.1",
+    version => "0.2",
     url => "http://openservices.at/services/infrastructure-monitoring/dns",
     usage => "Usage: %s ".
         "[-v|--verbose] ".
@@ -78,7 +78,7 @@ $nagios->add_arg(
     required => 1,
 );
 $nagios->add_arg(
-    spec => 'expected|e=s',
+    spec => 'expected|e=s@',
     help => "-e, --expected=STRING\n".
         "The expected DNS response to the query (e.g. 127.0.0.1:A:IN).",
     required => 0,
@@ -101,10 +101,16 @@ $query{type} ||= "A";
 $query{class} ||= "IN";
 
 # Parse expected string and set default values taken from the query string if necessary.
-my %expected;
-($expected{record}, $expected{type}, $expected{class}) = split /:/,$nagios->opts->get('expected');
-$expected{type} ||= $query{type};
-$expected{class} ||= $query{class};
+my @expected = ();
+if ($nagios->opts->get('expected')) {
+    foreach my $expected (@{$nagios->opts->get('expected')}) {
+        my %variant;
+        ($variant{record}, $variant{type}, $variant{class}) = split /:/ , $expected;
+        $variant{type} ||= $query{type};
+        $variant{class} ||= $query{class};
+        push @expected, \%variant;
+    }
+}
 
 # Create resolver using hostname and port.
 my $res = Net::DNS::Resolver->new;
@@ -147,20 +153,20 @@ if ($nagios->check_threshold(check => $elapsed) != OK) {
 
 # I f a record is expected in as an anser to our query, iterate over the answer
 # member and filter out results based on the expected record.
-if ($nagios->opts->get('expected')) {
+foreach my $variant (@expected) {
     if (grep {
-        $_->type eq $expected{type} &&
-        $_->class eq $expected{class} &&
-        $_->{$mapping{$expected{type}}} eq $expected{record}
+        $_->type eq $variant->{type} &&
+        $_->class eq $variant->{class} &&
+        $_->{$mapping{$variant->{type}}} eq $variant->{record}
         } $answer->answer) {
         # We found at least one matching record.
         push @result, {
             'code' => OK,
             'message' => sprintf(
                 "Expected answer found: %s:%s:%s",
-                $expected{record},
-                $expected{type},
-                $expected{class}),
+                $variant->{record},
+                $variant->{type},
+                $variant->{class}),
         };
     } else {
         # No matching record found, go CRITICAL.
@@ -168,9 +174,9 @@ if ($nagios->opts->get('expected')) {
             'code' => CRITICAL,
             'message' => sprintf(
                 "Could not find expected answer: %s:%s:%s",
-                $expected{record},
-                $expected{type},
-                $expected{class}),
+                $variant->{record},
+                $variant->{type},
+                $variant->{class}),
         };
     }
 }
