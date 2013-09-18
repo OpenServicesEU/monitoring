@@ -25,7 +25,7 @@ use lib "/usr/local/nagios/libexec/";
 
 use version;
 use Thread::Pool::Simple;
-use LWP;
+use LWP::UserAgent;
 use HTML::TreeBuilder::XPath;
 use Time::HiRes qw(gettimeofday tv_interval);
 use Log::Message::Simple qw[:STD :CARP];
