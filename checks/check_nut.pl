@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright 2012 Michael Fladischer
+# Copyright 2013 Michael Fladischer
 # OpenServices e.U.
 # office@openservices.at
 #
@@ -9,12 +9,12 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -22,16 +22,14 @@ use strict;
 use lib "/usr/local/nagios/libexec/";
 
 use UPS::Nut;
-use Switch;
 use Log::Message::Simple qw[:STD :CARP];
-use Data::Dumper;
 
 use Nagios::Plugin;
 use Nagios::Plugin::Performance use_die => 1;
 
-my $nagios = Nagios::Plugin->new(  
+my $nagios = Nagios::Plugin->new(
     shortname => "NUT",
-    version => "0.1",
+    version => "0.2",
     url => "http://openservices.at/services/infrastructure-monitoring/nut",
     usage => "Usage: %s ".
         "[-v|--verbose] ".
@@ -110,16 +108,17 @@ $nagios->getopts;
 
 msg("Connecting to NUT on ".$nagios->opts->get("host").":".$nagios->opts->get("port")." with user ".$nagios->opts->get("login"), $nagios->opts->get('verbose'));
 my $ups = new UPS::Nut(
-	NAME => $nagios->opts->get("ups"),
-	HOST => $nagios->opts->get("host"),
-	PORT => $nagios->opts->get("port"),
-	USERNAME => $nagios->opts->get("login"),
-	PASSWORD => $nagios->opts->get("password"),
-	TIMEOUT => $nagios->opts->get("timeout"),
+    NAME => $nagios->opts->get("ups"),
+    HOST => $nagios->opts->get("host"),
+    PORT => $nagios->opts->get("port"),
+    USERNAME => $nagios->opts->get("login"),
+    PASSWORD => $nagios->opts->get("password"),
+    TIMEOUT => $nagios->opts->get("timeout"),
 );
 
-switch ($nagios->opts->get("query")) {
-    case "state" {
+my %querymap = (
+    "state" => sub {
+        my ($ups, $nagios) = @_;
         if ($ups->Status() =~ /FSD/) {
             $nagios->nagios_exit(CRITICAL, "UPS ".$nagios->opts->get("ups")." is in Forced Shutdown (FSD) state.");
         } elsif ($ups->Status() =~ /OB/) {
@@ -127,12 +126,13 @@ switch ($nagios->opts->get("query")) {
         } else {
             $nagios->nagios_exit(OK, "UPS ".$nagios->opts->get("ups")." is doing fine.");
         }
-    }
-    case "battery" {
+    },
+    "battery" => sub {
+        my ($ups, $nagios) = @_;
         my $code = $nagios->check_threshold(
             check => $ups->BattPercent(),
         );
-        $nagios->add_perfdata( 
+        $nagios->add_perfdata(
             label => "Battery",
             value => $ups->BattPercent(),
             threshold => $nagios->threshold,
@@ -141,12 +141,13 @@ switch ($nagios->opts->get("query")) {
         $nagios->nagios_exit($code, "UPS ".$nagios->opts->get("ups")." is running low on battery (".$ups->BattPercent()."%).") if $code != OK;
         # Exit OK.
         $nagios->nagios_exit(OK, "UPS ".$nagios->opts->get("ups")." is charged (".$ups->BattPercent()."%).");
-    }
-    case "load" {
+    },
+    "load" => sub {
+        my ($ups, $nagios) = @_;
         my $code = $nagios->check_threshold(
             check => $ups->LoadPercent($nagios->opts->get("context")),
         );
-        $nagios->add_perfdata( 
+        $nagios->add_perfdata(
             label => "Load",
             value => $ups->LoadPercent($nagios->opts->get("context")),
             threshold => $nagios->threshold,
@@ -155,12 +156,13 @@ switch ($nagios->opts->get("query")) {
         $nagios->nagios_exit($code, "UPS ".$nagios->opts->get("ups")." is on high load (".$ups->LoadPercent($nagios->opts->get("context"))."%).") if $code != OK;
         # Exit OK.
         $nagios->nagios_exit(OK, "UPS ".$nagios->opts->get("ups")." is on normal load (".$ups->LoadPercent($nagios->opts->get("context"))."%).");
-    }
-    case "voltage" {
+    },
+    "voltage" => sub {
+        my ($ups, $nagios) = @_;
         my $code = $nagios->check_threshold(
             check => $ups->LineVoltage($nagios->opts->get("context")),
         );
-        $nagios->add_perfdata( 
+        $nagios->add_perfdata(
             label => "Voltage",
             value => $ups->LineVoltage($nagios->opts->get("context")),
             threshold => $nagios->threshold,
@@ -169,12 +171,13 @@ switch ($nagios->opts->get("query")) {
         $nagios->nagios_exit($code, "UPS ".$nagios->opts->get("ups")." is on out-of-bounds line voltage (".$ups->LineVoltage($nagios->opts->get("context"))."V).") if $code != OK;
         # Exit OK.
         $nagios->nagios_exit(OK, "UPS ".$nagios->opts->get("ups")." is on normal line voltage (".$ups->LineVoltage($nagios->opts->get("context"))."V).");
-    }
-    case "temperature" {
+    },
+    "temperature" => sub {
+        my ($ups, $nagios) = @_;
         my $code = $nagios->check_threshold(
             check => $ups->Temperature(),
         );
-        $nagios->add_perfdata( 
+        $nagios->add_perfdata(
             label => "Temperature",
             value => $ups->Temperature(),
             threshold => $nagios->threshold,
@@ -184,7 +187,10 @@ switch ($nagios->opts->get("query")) {
         # Exit OK.
         $nagios->nagios_exit(OK, "UPS ".$nagios->opts->get("ups")." is on normal temperature (".$ups->Temperature()."DegC).");
     }
-    else {
-        $nagios->nagios_exit(UNKNOWN, "Unknown query type: ".$nagios->opts->get("query"));
-    }
+);
+
+if (exists $querymap{$nagios->opts->get("query")}) {
+    $querymap{$nagios->opts->get("query")}($ups, $nagios);
+} else {
+    $nagios->nagios_exit(UNKNOWN, "Unknown query type: ".$nagios->opts->get("query"));
 }
