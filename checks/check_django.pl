@@ -90,11 +90,10 @@ $nagios->add_arg(
     default => "/monitoring",
 );
 $nagios->add_arg(
-    spec => 'ssl|s',
-    help => "-s, --ssl\n".
-        "Use SSL (HTTPS) when connecting to django_monitoring.",
+    spec => 'ssl|s=s',
+    help => "-s, --ssl=STRING\n".
+        "Use SSL (HTTPS) when connecting to django_monitoring and check certificate verification chain against this CA certificate.",
     required => 0,
-    default => 0,
 );
 $nagios->add_arg(
     spec => 'ip|I=s',
@@ -136,8 +135,27 @@ msg(
 );
 
 # Instantiate new LWP user agent for django_monitoring.
-my $ua = LWP::UserAgent->new;
+my $ua;
+if ($nagios->opts->get("ssl")) {
+    $ua = LWP::UserAgent->new(
+        ssl_opts => {
+            verify_hostname => 1,
+            SSL_hostname    => $nagios->opts->get("host"),
+            SSL_verifycn_name => $nagios->opts->get("host"),
+            SSL_ca_file     => $nagios->opts->get("ssl"),
+        }
+    );
+} else {
+    $ua = LWP::UserAgent->new;
+}
 $ua->default_header("Host" => $nagios->opts->get("host"));
+msg(
+    sprintf(
+        "Setting Host header to: %s",
+        $nagios->opts->get("host")
+    ),
+    $nagios->opts->get('verbose')
+);
 $ua->timeout($nagios->opts->get("timeout"));
 $ua->cookie_jar({});
 
