@@ -9,19 +9,19 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
 use lib "/usr/lib/nagios/plugins/";
 
-# Disable hostname verification for LWP::SSL because the CN of most 
+# Disable hostname verification for LWP::SSL because the CN of most
 # certificates does not match their internal hostname.
 BEGIN { $ENV{PERL_LWP_SSL_VERIFY_HOSTNAME} = 0 }
 
@@ -32,7 +32,7 @@ use Log::Message::Simple qw[:STD :CARP];
 use Nagios::Plugin;
 use Nagios::Plugin::Performance use_die => 1;
 
-my $nagios = Nagios::Plugin->new(  
+my $nagios = Nagios::Plugin->new(
     shortname => "CAMPUSonline",
     version => "0.1",
     url => "http://openservices.at/services/infrastructure-monitoring/campusonline",
@@ -163,7 +163,7 @@ my $code = $nagios->check_threshold(
 );
 
 # Perfdata
-$nagios->add_perfdata( 
+$nagios->add_perfdata(
     label => "Latency",
     value => $elapsed,
     threshold => $nagios->threshold,
