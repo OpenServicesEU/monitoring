@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright 2013 Michael Fladischer
+# Copyright 2014 Michael Fladischer
 # OpenServices e.U.
 # office@openservices.at
 #
@@ -24,10 +24,12 @@ use strict;
 use lib "/usr/local/nagios/libexec/";
 
 use version;
-use Thread::Pool::Simple;
 use LWP::UserAgent;
-use HTML::TreeBuilder::XPath;
+use File::Slurp;
+use XML::LibXML;
 use Time::HiRes qw(gettimeofday tv_interval);
+use Compress::Zlib;
+use Digest::MD5;
 use Log::Message::Simple qw[:STD :CARP];
 
 use Nagios::Plugin;
@@ -46,15 +48,30 @@ my $nagios = Nagios::Plugin->new(
         "[-p <password>] ".
         "[-I <ip>] ".
         "[-i <extension>] ".
+        "[-C <cachepath>] ".
+        "[-M <mirror>] ".
         "[--update-action=<update-action>] ".
         "[--conflict-action=<conflict-action>] ".
         "[--deprecationlog-action=<deprecation-action>] ".
-        "[-T <threads>] ".
         "[-w <threshold>] ".
         "[-c <threshold>] ",
 );
 
 # add valid command line options and build them into your usage/help documentation.
+$nagios->add_arg(
+    spec => 'cache|C=s',
+    help => "-C, --cache=STRING\n".
+        "Path where the downloaded mirrors and extensions XML files can be stored.",
+    required => 0,
+    default => 0,
+);
+$nagios->add_arg(
+    spec => 'mirror|M=s',
+    help => "-M, --mirror=STRING\n".
+        "The prefered mirror from whcih the extensions metadata XML file should be downloaded. A random mirror is choosen if this option is omitted.",
+    required => 0,
+    default => 0,
+),
 $nagios->add_arg(
     spec => 'host|H=s',
     help => "-H, --host=STRING\n".
@@ -143,13 +160,6 @@ $nagios->add_arg(
     required => 0,
     default => "warning",
 );
-$nagios->add_arg(
-    spec => 'threads|T=i',
-    help => "-T, --threads=INTEGER\n".
-        "The number of threads to use for gathering version information from typo3.org (default: 4).",
-    required => 0,
-    default => 4,
-);
 
 # Map strings from arguments to Nagios Plugin codes.
 my %codemap = (
@@ -160,6 +170,100 @@ my %codemap = (
 
 # Parse @ARGV and process arguments.
 $nagios->getopts;
+
+sub get_remote {
+    my ($baseurl, $filename) =  @_;
+    my $ua = LWP::UserAgent->new;
+    my $response = $ua->get(sprintf("%s/%s", $baseurl, $filename));
+    if ($response->code == 200) {
+        return $response->content;
+    } else {
+        return;
+    }
+}
+sub get_remote_cached {
+    my ($baseurl, $filename, $cache) =  @_;
+    my $path = sprintf("%s/%s", $cache, $filename);
+    if ($cache && -e $path) {
+        return read_file($path, binmode => ':raw');
+    } else {
+        my $content = get_remote(@_);
+        if (defined $content && -d $cache) {
+            open my $fh, ">", $path;
+            binmode ($fh);
+            print $fh $content;
+            close $fh;
+        }
+        return $content;
+    }
+}
+sub get_remote_cached_uncompressed {
+    return Compress::Zlib::memGunzip(get_remote_cached(@_));
+}
+sub get_remote_cached_uncompressed_xpath {
+    return XML::LibXML->load_xml(string => get_remote_cached_uncompressed(@_));
+}
+
+my $mirrors = get_remote_cached_uncompressed_xpath("http://repositories.typo3.org", "mirrors.xml.gz", $nagios->opts->get("cache"));
+my $mirror;
+
+# Select random mirror
+if ($nagios->opts->get("mirror")) {
+    $mirror = ($mirrors->findnodes(sprintf("/mirrors/mirror/host[text()='%s']/..", $nagios->opts->get("mirror"))))[0];
+}
+if (!defined($mirror)) {
+    my @mirror_candidates = $mirrors->findnodes('/mirrors/mirror');
+    msg(
+        sprintf(
+            "Selecting random mirror from candidates: %d",
+            $#mirror_candidates
+        ),
+        $nagios->opts->get('verbose')
+    );
+    $mirror = $mirror_candidates[rand @mirror_candidates];
+}
+
+my $mirror_url = sprintf("http://%s%s", $mirror->findvalue("host"), $mirror->findvalue("path"));
+msg(
+    sprintf(
+        "Using mirror: %s",
+        $mirror_url
+    ),
+    $nagios->opts->get('verbose')
+);
+
+my $path = sprintf("%s/%s", $nagios->opts->get("cache"), "extensions.xml.gz");
+if (-e $path) {
+    my $remote_md5 = get_remote($mirror_url, "extensions.md5", $nagios->opts->get("cache"));
+    msg(
+        sprintf(
+            "Remote extensions.md5: %s",
+            $remote_md5
+        ),
+        $nagios->opts->get('verbose')
+    );
+    my $ctx = Digest::MD5->new;
+    open my $fh, '<', $path;
+    binmode ($fh);
+    $ctx->addfile($fh);
+    my $local_md5 = $ctx->hexdigest;
+    msg(
+        sprintf(
+            "Local MD5 for extensions.xml.gz: %s",
+            $local_md5
+        ),
+        $nagios->opts->get('verbose')
+    );
+    if ($remote_md5 eq $local_md5) {
+        msg("Local extensions.xml.gz is up to date.", $nagios->opts->get('verbose'));
+    } else {
+        msg("Local extensions.xml.gz is out of date, purging from cache.", $nagios->opts->get('verbose'));
+        unlink $path;
+    }
+
+}
+
+my $extensions = get_remote_cached_uncompressed_xpath($mirror_url, "extensions.xml.gz", $nagios->opts->get("cache"));
 
 # Construct URL to TYPO3 nagios extension page.
 my $url = sprintf("http%s://%s%s",
@@ -227,7 +331,7 @@ if ($response->code != 200) {
     );
 }
 
-# Hash that will hold the paresd response data.
+# Hash that will hold the parsed response data.
 my %data;
 
 # Parse response content and populate data hash.
@@ -261,88 +365,24 @@ $nagios->add_perfdata(
     value => $data{DBTABLES},
 );
 
-# Check for latest version of installed extensions from typo3.org.
-sub update {
-    my ($extension) = @_;
-
-    # Instantiate new LWP user agent for typo3.org to avoid leaking credentials.
-    $ua = LWP::UserAgent->new;
-    $ua->timeout($nagios->opts->get("timeout"));
-    $ua->cookie_jar( {} );
-    msg(
-        sprintf(
-            "Checking for latest version of %s on TYPO3.org",
-            $extension
-        ),
-        $nagios->opts->get('verbose')
-    );
-    my $url = sprintf("http://typo3.org/extensions/repository/view/%s", $extension);
-    my $response = $ua->get($url);
-    if ($response->code != 200) {
-        error(
+my @updates;
+foreach my $name (keys %{$data{EXT}}) {
+    my $ext = $data{EXT}->{$name};
+    my $extension = ($extensions->findnodes(sprintf("/extensions/extension[\@extensionkey='%s']", $name)))[0];
+    if (!defined $extension) {
+        msg(
             sprintf(
-                "Could not fetch version information from %s: %i",
-                $url,
-                $response->code
-            )
+                "Extension not found in data file: %s",
+                $name
+            ),
+            $nagios->opts->get('verbose')
         );
         next;
     }
-
-    my $tree = HTML::TreeBuilder::XPath->new;
-    $tree->utf8_mode(1);
-    $tree->parse($response->content);
-    $tree->eof();
-    my $key = $tree->findvalue('//tr/th[text()="Extension key"]/../td/strong/text()');
-    if ($key ne $extension) {
-        error(
-            sprintf(
-                "Could not fetch remote version information for %s from %s",
-                $extension,
-                $url
-            )
-        );
-        return undef;
+    if (grep { $ext < $_ } map { version->parse($_->to_literal) } $extension->findnodes("version/\@version")) {
+        push @updates, $name;
     }
-    my $new = $tree->findvalue('//div[@class="download-button"]/a/text()');
-    $new =~ s/^Download version //;
-    msg(
-        sprintf(
-            "Version of %s found on typo3.org: %s",
-            $extension,
-            $new
-        ),
-        $nagios->opts->get('verbose')
-    );
-    return version->parse($new);
 }
-
-# Instantiate a thread pool which will look up version information on typo.org.
-msg(
-    sprintf(
-        "Starting thread pool with %i threads...",
-        $nagios->opts->get('threads')
-    ),
-    $nagios->opts->get('verbose')
-);
-my $pool = Thread::Pool::Simple->new(
-    do => [\&update],
-    min => $nagios->opts->get('threads')
-);
-
-# Queue jobs to thread pool by passing the extension key.
-# Job IDs are stored for later retrieval of the results.
-my %jobs = map { $_ => $pool->add(($_)) } keys %{$data{EXT}};
-
-# Wait for thread pool to run out of jobs.
-msg("Waiting for thread pool to finish...", $nagios->opts->get('verbose'));
-$pool->join();
-
-# Retrieve results from thread pool.
-my %results = map { $_ => $pool->remove($jobs{$_}) } keys %jobs;
-
-# Filter all updates.
-my @updates = grep { $results{$_} > $data{EXT}->{$_} } grep { defined $results{$_} } keys %results;
 
 # Perfdata
 $nagios->add_perfdata(
@@ -372,19 +412,21 @@ if (defined $codemap{$nagios->opts->get('deprecationlog-action')} and $data{DEPR
 }
 
 # Process conflicts.
-if (defined $codemap{$nagios->opts->get('conflict-action')} and scalar @conflicts > 0) {
-    if ($codemap{$nagios->opts->get('conflict-action')} > $code) {
-        $code = $codemap{$nagios->opts->get('conflict-action')};
+if (scalar @conflicts > 0) {
+    my $action = $codemap{$nagios->opts->get('conflict-action')};
+    if (defined $action && $action > $code) {
+        $code = $action;
     }
     $message .= sprintf("; TYPO3 %s conflicts: %s", $data{TYPO3}, join(", ", map { sprintf ("%s[%s-%s]", $_, $data{EXTDEPTYPO3}->{$_}->{from}, $data{EXTDEPTYPO3}->{$_}->{to}) } @conflicts));
 }
 
 # Process updates.
-if (defined $codemap{$nagios->opts->get('update-action')} and scalar @updates > 0) {
-    if ($codemap{$nagios->opts->get('update-action')} > $code) {
-        $code = $codemap{$nagios->opts->get('update-action')};
+if (scalar @updates > 0) {
+    my $action = $codemap{$nagios->opts->get('update-action')};
+    if (defined $action && $action > $code) {
+        $code = $action;
     }
-    $message .= sprintf("; Updates available: %s", join(", ", map { sprintf ("%s[%s->%s]", $_, $data{EXT}->{$_}, $results{$_}) } @updates));
+    $message .= sprintf("; Updates available: %s", join(", ", @updates));
 }
 
 # Exit with final status and message.
