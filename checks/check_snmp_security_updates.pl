@@ -120,11 +120,19 @@ my $packages = $nagios->walk($nagios->opts->get("oid"));
 my @packagenames = map { $packages->{$nagios->opts->get("oid")}->{$_} } keys %{$packages->{$nagios->opts->get("oid")}};
 
 # Tie persistent storage to keep track of pending updates over time.
-tie %h, "DB_File", $filename, O_RDWR|O_CREAT, 0666, $DB_HASH or
+tie %h, "DB_File", $filename, O_RDWR|O_CREAT, 0640, $DB_HASH or
     $nagios->nagios_exit(UNKNOWN, sprintf("Cannot open file %s (%s)", $filename, $!));
 
 foreach my $key (keys %h) {
-    if (!grep { $key == $_ } @packagenames) {
+    msg(
+        sprintf(
+            "Previously seen update: %s (%s)",
+            $key,
+            scalar localtime $h{$key}
+        ),
+        $nagios->opts->get('verbose')
+    );
+    if (!grep { $key eq $_ } @packagenames) {
         msg(
             sprintf(
                 "Forgetting update: %s",
@@ -136,7 +144,7 @@ foreach my $key (keys %h) {
     }
 }
 foreach my $key (@packagenames) {
-    if (!grep { $key == $_ } keys %h) {
+    if (!grep { $key eq $_ } keys %h) {
         msg(
             sprintf(
                 "Remembering update: %s",
@@ -158,7 +166,8 @@ my $status = @warning ? @critical ? CRITICAL : WARNING : OK;
 $nagios->nagios_exit(
     $status,
     sprintf(
-        "Pending updates: %s",
-        join ", ", @packagenames
+        "Pending updates: %d\n%s",
+        $count->{$nagios->opts->get("oid")},
+        join ",\n", sort @packagenames
     )
 );
