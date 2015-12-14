@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright 2013 Michael Fladischer
+# Copyright 2015 Michael Fladischer
 # OpenServices e.U.
 # office@openservices.at
 #
@@ -25,10 +25,10 @@ use lib "/usr/lib/nagios/plugins/";
 use Net::LDAP;
 use Log::Message::Simple qw[:STD :CARP];
 
-use Nagios::Plugin;
-use Nagios::Plugin::Performance use_die => 1;
+use Monitoring::Plugin;
+use Monitoring::Plugin::Performance use_die => 1;
 
-my $nagios = Nagios::Plugin->new(
+my $monitor = Monitoring::Plugin->new(
     shortname => "LDAP Count",
     version => "0.1",
     url => "http://openservices.at/services/infrastructure-monitoring/ldap",
@@ -47,56 +47,56 @@ my $nagios = Nagios::Plugin->new(
 );
 
 # add valid command line options and build them into your usage/help documentation.
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'host|H=s',
     help => "-H, --host=STRING\n".
         "The host to connect to.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'warning|w=i',
     help => "-w, --warning=INTEGER:INTEGER\n".
         "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'critical|c=i',
     help => "-c, --critical=INTEGER:INTEGER\n".
         "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'login|l=s',
     help => "-l, --login=STRING\n".
         "DN to login.",
     required => 0,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'password|p=s',
     help => "-p, --password=STRING\n".
         "Password used for authentication.",
     required => 0,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'port|o=i',
     help => "-o, --port=INTEGER\n".
         "Port used by the LDAP server.",
     required => 0,
     default => 389,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'base|b=s',
     help => "-b, --base=STRING\n".
         "Base-DN for LDAP search (e.g. dc=example,dc=com)",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'filter|f=s',
     help => "-f, --filter=STRING\n".
         "LDAP-Filter used to search for entries (e.g. (attr='value'))",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'ssl|s',
     help => "-s, --ssl\n".
         "Use SSL/HTTPS",
@@ -104,22 +104,22 @@ $nagios->add_arg(
 );
 
 # Parse @ARGV and process arguments.
-$nagios->getopts;
+$monitor->getopts;
 
 my $ldap = Net::LDAP->new(
-    sprintf("%s:%i", $nagios->opts->get('host'), $nagios->opts->get('port'))
-) or $nagios->nagios_exit(UNKNOWN,
+    sprintf("%s:%i", $monitor->opts->get('host'), $monitor->opts->get('port'))
+) or $monitor->nagios_exit(UNKNOWN,
     sprintf("Could not connect to host %s:%i: %s",
-        $nagios->opts->get('host'),
-        $nagios->opts->get('port'),
+        $monitor->opts->get('host'),
+        $monitor->opts->get('port'),
         $@
     )
 );
-if ($nagios->opts->get('login')) {
+if ($monitor->opts->get('login')) {
     # Login with credentials. Make sure that this user cannot change entries in
     # the tree!
-    $ldap->bind($nagios->opts->get('login'),
-        password => $nagios->opts->get('password'),
+    $ldap->bind($monitor->opts->get('login'),
+        password => $monitor->opts->get('password'),
         version => 3
     );
 } else {
@@ -128,8 +128,8 @@ if ($nagios->opts->get('login')) {
 }
 
 my $result = $ldap->search(
-    base => $nagios->opts->get('base'),
-    filter => $nagios->opts->get('filter'),
+    base => $monitor->opts->get('base'),
+    filter => $monitor->opts->get('filter'),
     attrs => [],
     scope => "sub"
 );
@@ -139,16 +139,16 @@ $ldap->unbind;
 $ldap->disconnect;
 
 # Threshold check.
-my $code = $nagios->check_threshold(
+my $code = $monitor->check_threshold(
     check => $result->count(),
 );
 
 # Perfdata
-$nagios->add_perfdata(
+$monitor->add_perfdata(
     label => "Entries",
     value => $result->count(),
-    threshold => $nagios->threshold,
+    threshold => $monitor->threshold,
 );
 
 # Exit with status
-$nagios->nagios_exit($code, sprintf("Found %i entries in %s", $result->count(), $nagios->opts->get('base')));
+$monitor->nagios_exit($code, sprintf("Found %i entries in %s", $result->count(), $monitor->opts->get('base')));

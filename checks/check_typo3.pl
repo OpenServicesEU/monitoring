@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright 2014 Michael Fladischer
+# Copyright 2015 Michael Fladischer
 # OpenServices e.U.
 # office@openservices.at
 #
@@ -32,10 +32,10 @@ use Compress::Zlib;
 use Digest::MD5;
 use Log::Message::Simple qw[:STD :CARP];
 
-use Nagios::Plugin;
-use Nagios::Plugin::Performance use_die => 1;
+use Monitoring::Plugin;
+use Monitoring::Plugin::Performance use_die => 1;
 
-my $nagios = Nagios::Plugin->new(
+my $monitor = Monitoring::Plugin->new(
     shortname => "TYPO3",
     version => "0.1",
     url => "http://openservices.at/services/infrastructure-monitoring/typo3",
@@ -58,79 +58,79 @@ my $nagios = Nagios::Plugin->new(
 );
 
 # add valid command line options and build them into your usage/help documentation.
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'cache|C=s',
     help => "-C, --cache=STRING\n".
         "Path where the downloaded mirrors and extensions XML files can be stored.",
     required => 0,
     default => 0,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'mirror|M=s',
     help => "-M, --mirror=STRING\n".
         "The prefered mirror from whcih the extensions metadata XML file should be downloaded. A random mirror is choosen if this option is omitted.",
     required => 0,
     default => 0,
 ),
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'host|H=s',
     help => "-H, --host=STRING\n".
         "The host to connect to.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'warning|w=s',
     help => "-w, --warning=INTEGER:INTEGER\n".
         "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'critical|c=s',
     help => "-c, --critical=INTEGER:INTEGER\n".
         "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'login|l=s',
     help => "-l, --login=STRING\n".
         "Username to login.",
     required => 0,
     default => "",
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'password|p=s',
     help => "-p, --password=STRING\n".
         "   Password used for authentication.",
     required => 0,
     default => "",
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'uri|u=i',
     help => "-u, --uri=STRING\n".
         "URI of TYPO3 server's Nagios extension output (default: /index.php?eID=nagios).",
     required => 0,
     default => "/index.php?eID=nagios",
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'ssl|s',
     help => "-s, --ssl\n".
         "Use SSL (HTTPS) when connecting to TYPO3.",
     required => 0,
     default => 0,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'ip|I=s',
     help => "-I, --ip=STRING\n".
         "IPv4 address of the TYPO3 server. If this argument is used, the hostname (argument -H or --hostname) is sent as \"Host:\" in the HTTP header of the request.",
     required => 0,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'ignore|i=s@',
     help => "-i, --ignore=STRING\n".
         "Names of TYPO3 extensions that should be ignored. Can be used multiple times to ignore more than one extension.",
     required => 0,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'conflict-action=s',
     help => "--conflict-action=(ignore|warning|critical)\n".
         "   One of the following actions, if a conflict with an extension has been detected (default: warning):\n".
@@ -140,7 +140,7 @@ $nagios->add_arg(
     required => 0,
     default => "warning",
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'update-action=s',
     help => "--update-action=(ignore|warning|critical)\n".
         "   One of the following actions, if an update for an extension has been detected (default: warning):\n".
@@ -150,7 +150,7 @@ $nagios->add_arg(
     required => 0,
     default => "warning",
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'deprecationlog-action=s',
     help => "--deprecationlog-action=(ignore|warning|critical)\n".
         "   One of the following actions, if an enabled deprecation log has been detected (default: warning):\n".
@@ -169,7 +169,7 @@ my %codemap = (
 );
 
 # Parse @ARGV and process arguments.
-$nagios->getopts;
+$monitor->getopts;
 
 sub get_remote {
     my ($baseurl, $filename) =  @_;
@@ -204,12 +204,12 @@ sub get_remote_cached_uncompressed_xpath {
     return XML::LibXML->load_xml(string => get_remote_cached_uncompressed(@_));
 }
 
-my $mirrors = get_remote_cached_uncompressed_xpath("http://repositories.typo3.org", "mirrors.xml.gz", $nagios->opts->get("cache"));
+my $mirrors = get_remote_cached_uncompressed_xpath("http://repositories.typo3.org", "mirrors.xml.gz", $monitor->opts->get("cache"));
 my $mirror;
 
 # Select random mirror
-if ($nagios->opts->get("mirror")) {
-    $mirror = ($mirrors->findnodes(sprintf("/mirrors/mirror/host[text()='%s']/..", $nagios->opts->get("mirror"))))[0];
+if ($monitor->opts->get("mirror")) {
+    $mirror = ($mirrors->findnodes(sprintf("/mirrors/mirror/host[text()='%s']/..", $monitor->opts->get("mirror"))))[0];
 }
 if (!defined($mirror)) {
     my @mirror_candidates = $mirrors->findnodes('/mirrors/mirror');
@@ -218,7 +218,7 @@ if (!defined($mirror)) {
             "Selecting random mirror from candidates: %d",
             $#mirror_candidates
         ),
-        $nagios->opts->get('verbose')
+        $monitor->opts->get('verbose')
     );
     $mirror = $mirror_candidates[rand @mirror_candidates];
 }
@@ -229,18 +229,18 @@ msg(
         "Using mirror: %s",
         $mirror_url
     ),
-    $nagios->opts->get('verbose')
+    $monitor->opts->get('verbose')
 );
 
-my $path = sprintf("%s/%s", $nagios->opts->get("cache"), "extensions.xml.gz");
+my $path = sprintf("%s/%s", $monitor->opts->get("cache"), "extensions.xml.gz");
 if (-e $path) {
-    my $remote_md5 = get_remote($mirror_url, "extensions.md5", $nagios->opts->get("cache"));
+    my $remote_md5 = get_remote($mirror_url, "extensions.md5", $monitor->opts->get("cache"));
     msg(
         sprintf(
             "Remote extensions.md5: %s",
             $remote_md5
         ),
-        $nagios->opts->get('verbose')
+        $monitor->opts->get('verbose')
     );
     my $ctx = Digest::MD5->new;
     open my $fh, '<', $path;
@@ -252,58 +252,58 @@ if (-e $path) {
             "Local MD5 for extensions.xml.gz: %s",
             $local_md5
         ),
-        $nagios->opts->get('verbose')
+        $monitor->opts->get('verbose')
     );
     if ($remote_md5 eq $local_md5) {
-        msg("Local extensions.xml.gz is up to date.", $nagios->opts->get('verbose'));
+        msg("Local extensions.xml.gz is up to date.", $monitor->opts->get('verbose'));
     } else {
-        msg("Local extensions.xml.gz is out of date, purging from cache.", $nagios->opts->get('verbose'));
+        msg("Local extensions.xml.gz is out of date, purging from cache.", $monitor->opts->get('verbose'));
         unlink $path;
     }
 
 }
 
-my $extensions = get_remote_cached_uncompressed_xpath($mirror_url, "extensions.xml.gz", $nagios->opts->get("cache"));
+my $extensions = get_remote_cached_uncompressed_xpath($mirror_url, "extensions.xml.gz", $monitor->opts->get("cache"));
 
 # Construct URL to TYPO3 nagios extension page.
 my $url = sprintf("http%s://%s%s",
-    $nagios->opts->get("ssl") ? "s" : "",
-    ($nagios->opts->get("ip") or $nagios->opts->get("host")),
-    $nagios->opts->get("uri")
+    $monitor->opts->get("ssl") ? "s" : "",
+    ($monitor->opts->get("ip") or $monitor->opts->get("host")),
+    $monitor->opts->get("uri")
 );
 
 msg(
     sprintf(
         "Connecting to TYPO3 on %s with user %s",
         $url,
-        $nagios->opts->get("login")
+        $monitor->opts->get("login")
     ),
-    $nagios->opts->get('verbose')
+    $monitor->opts->get('verbose')
 );
 
 # Instantiate new LWP user agent for TYPO3 nagios extension page.
 my $ua = LWP::UserAgent->new;
-$ua->default_header("Host" => $nagios->opts->get("host"));
-$ua->timeout($nagios->opts->get("timeout"));
+$ua->default_header("Host" => $monitor->opts->get("host"));
+$ua->timeout($monitor->opts->get("timeout"));
 $ua->cookie_jar({});
 
-if ($nagios->opts->get("login") and $nagios->opts->get("password")) {
+if ($monitor->opts->get("login") and $monitor->opts->get("password")) {
     msg(
         sprintf(
             "Setting credentials for realm \"TYPO3 Nagios\": %s",
-            $nagios->opts->get("login")
+            $monitor->opts->get("login")
         ),
-        $nagios->opts->get('verbose')
+        $monitor->opts->get('verbose')
     );
     $ua->credentials(
         sprintf(
             "%s:%i",
-            $nagios->opts->get("host"),
-            $nagios->opts->get("ssl") ? 443 : 80
+            $monitor->opts->get("host"),
+            $monitor->opts->get("ssl") ? 443 : 80
         ),
         "TYPO3 Nagios",
-        $nagios->opts->get("login"),
-        $nagios->opts->get("password")
+        $monitor->opts->get("login"),
+        $monitor->opts->get("password")
     );
 }
 
@@ -313,16 +313,16 @@ my $response = $ua->get($url);
 my $elapsed = tv_interval($timer) * 1000;
 
 # Perfdata
-$nagios->add_perfdata(
+$monitor->add_perfdata(
     label => "Latency",
     value => $elapsed,
-    threshold => $nagios->threshold,
+    threshold => $monitor->threshold,
     uom => 'ms',
 );
 
 # See if we got a valid response from the TYPO3 nagios extension.
 if ($response->code != 200) {
-    $nagios->nagios_exit(
+    $monitor->nagios_exit(
         CRITICAL,
         sprintf(
             "TYPO3 returned an HTTP error: %i",
@@ -339,7 +339,7 @@ foreach (grep { !/^#|^$/ } split /\n/, $response->content) {
     my @matches = $_ =~ /^(\w+):(.*?)((-version)?-(([\d\.]+)(-dev|-([\d\.]+))?))?$/g;
 
     # Ignore extensions from arguments.
-    next if (grep { /$matches[1]/ } @{$nagios->opts->get("ignore") || []});
+    next if (grep { /$matches[1]/ } @{$monitor->opts->get("ignore") || []});
 
     if (!exists $data{$matches[0]}) {
         $data{$matches[0]} = {};
@@ -360,7 +360,7 @@ foreach (grep { !/^#|^$/ } split /\n/, $response->content) {
 }
 
 # Perfdata
-$nagios->add_perfdata(
+$monitor->add_perfdata(
     label => "Database tables",
     value => $data{DBTABLES},
 );
@@ -375,7 +375,7 @@ foreach my $name (keys %{$data{EXT}}) {
                 "Extension not found in data file: %s",
                 $name
             ),
-            $nagios->opts->get('verbose')
+            $monitor->opts->get('verbose')
         );
         next;
     }
@@ -385,7 +385,7 @@ foreach my $name (keys %{$data{EXT}}) {
 }
 
 # Perfdata
-$nagios->add_perfdata(
+$monitor->add_perfdata(
     label => "Updates pending",
     value => scalar @updates,
 );
@@ -394,26 +394,26 @@ $nagios->add_perfdata(
 my @conflicts = grep { $data{TYPO3} < $data{EXTDEPTYPO3}->{$_}->{from} or $data{TYPO3} > $data{EXTDEPTYPO3}->{$_}->{to} } grep { $data{EXTDEPTYPO3}->{$_}->{to} > 0 } keys %{$data{EXTDEPTYPO3}};
 
 # Perfdata
-$nagios->add_perfdata(
+$monitor->add_perfdata(
     label => "Version conflicts",
     value => scalar @conflicts,
 );
 
 # First status derived from the time elapsed during the initial request.
-my $code = $nagios->check_threshold(check => $elapsed);
+my $code = $monitor->check_threshold(check => $elapsed);
 my $message = sprintf("Request finished in %ims", $elapsed);
 
 # Check for deprecation log.
-if (defined $codemap{$nagios->opts->get('deprecationlog-action')} and $data{DEPRECATIONLOG} eq "enabled") {
-    if ($codemap{$nagios->opts->get('deprecationlog-action')} > $code) {
-        $code = $codemap{$nagios->opts->get('deprecationlog-action')};
+if (defined $codemap{$monitor->opts->get('deprecationlog-action')} and $data{DEPRECATIONLOG} eq "enabled") {
+    if ($codemap{$monitor->opts->get('deprecationlog-action')} > $code) {
+        $code = $codemap{$monitor->opts->get('deprecationlog-action')};
     }
     $message .= "; Deprecation log enabled!";
 }
 
 # Process conflicts.
 if (scalar @conflicts > 0) {
-    my $action = $codemap{$nagios->opts->get('conflict-action')};
+    my $action = $codemap{$monitor->opts->get('conflict-action')};
     if (defined $action && $action > $code) {
         $code = $action;
     }
@@ -422,7 +422,7 @@ if (scalar @conflicts > 0) {
 
 # Process updates.
 if (scalar @updates > 0) {
-    my $action = $codemap{$nagios->opts->get('update-action')};
+    my $action = $codemap{$monitor->opts->get('update-action')};
     if (defined $action && $action > $code) {
         $code = $action;
     }
@@ -430,4 +430,4 @@ if (scalar @updates > 0) {
 }
 
 # Exit with final status and message.
-$nagios->nagios_exit($code, $message);
+$monitor->nagios_exit($code, $message);

@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright 2013 Michael Fladischer
+# Copyright 2015 Michael Fladischer
 # OpenServices e.U.
 # office@openservices.at
 #
@@ -19,7 +19,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
-use lib "/usr/lib/nagios/plugins/";
 
 use Net::DNS::Resolver;
 use Net::DNS::Packet;
@@ -27,12 +26,12 @@ use Time::HiRes qw(gettimeofday tv_interval);
 use List::Util qw(min max);
 use Log::Message::Simple qw[:STD :CARP];
 
-use Nagios::Plugin;
-use Nagios::Plugin::Performance use_die => 1;
+use Monitoring::Plugin;
+use Monitoring::Plugin::Performance use_die => 1;
 
-my $nagios = Nagios::Plugin->new(
+my $monitor = Monitoring::Plugin->new(
     shortname => "DNS",
-    version => "0.2",
+    version => "0.3",
     url => "http://openservices.at/services/infrastructure-monitoring/dns",
     usage => "Usage: %s ".
         "[-v|--verbose] ".
@@ -46,38 +45,38 @@ my $nagios = Nagios::Plugin->new(
 );
 
 # add valid command line options and build them into your usage/help documentation.
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'host|H=s',
     help => "-H, --host=STRING\n".
         "The DNS server to send queries to.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'warning|w=i',
     help => "-w, --warning=INTEGER:INTEGER\n".
         "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'critical|c=i',
     help => "-c, --critical=INTEGER:INTEGER\n".
         "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'port|p=i',
     help => "-p, --port=INTEGER\n".
         "Port on the DNS server (default: 53).",
     required => 0,
     default => 53,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'query|q=s',
     help => "-q, --query=STRING\n".
         "The DNS record to query (e.g. www.example.com:A:IN).",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'expected|e=s@',
     help => "-e, --expected=STRING\n".
         "The expected DNS response to the query (e.g. 127.0.0.1:A:IN).",
@@ -92,18 +91,18 @@ my %mapping = (
 );
 
 # Parse @ARGV and process arguments.
-$nagios->getopts;
+$monitor->getopts;
 
 # Parse query string and set default values if necessary.
 my %query;
-($query{record}, $query{type}, $query{class}) = split /:/,$nagios->opts->get('query');
+($query{record}, $query{type}, $query{class}) = split /:/,$monitor->opts->get('query');
 $query{type} ||= "A";
 $query{class} ||= "IN";
 
 # Parse expected string and set default values taken from the query string if necessary.
 my @expected = ();
-if ($nagios->opts->get('expected')) {
-    foreach my $expected (@{$nagios->opts->get('expected')}) {
+if ($monitor->opts->get('expected')) {
+    foreach my $expected (@{$monitor->opts->get('expected')}) {
         my %variant;
         ($variant{record}, $variant{type}, $variant{class}) = split /:/ , $expected;
         $variant{type} ||= $query{type};
@@ -114,34 +113,34 @@ if ($nagios->opts->get('expected')) {
 
 # Create resolver using hostname and port.
 my $res = Net::DNS::Resolver->new;
-$res->nameservers($nagios->opts->get('host'));
-$res->port($nagios->opts->get('port'));
+$res->nameservers($monitor->opts->get('host'));
+$res->port($monitor->opts->get('port'));
 
 # Create DNS request packet.
 my $req = new Net::DNS::Packet($query{record}, $query{type}, $query{class});
 
-msg("Sending DNS query:\n".$req->string, $nagios->opts->get('verbose'));
+msg("Sending DNS query:\n".$req->string, $monitor->opts->get('verbose'));
 my $timer = [gettimeofday];
 # Send DNS request packet using the resolver.
 my $answer = $res->send($req);
 # Calculate the time it took for the resolver to answer our request.
 my $elapsed = tv_interval($timer) * 1000;
-msg("Received DNS response:\n".$answer->string, $nagios->opts->get('verbose'));
+msg("Received DNS response:\n".$answer->string, $monitor->opts->get('verbose'));
 
 my @result;
 
 # Perfdata
-$nagios->add_perfdata(
+$monitor->add_perfdata(
     label => "Latency",
     value => $elapsed,
-    threshold => $nagios->threshold,
+    threshold => $monitor->threshold,
     uom => 'ms',
 );
 
 # Threshold check for the roundtrip time of the query.
-if ($nagios->check_threshold(check => $elapsed) != OK) {
+if ($monitor->check_threshold(check => $elapsed) != OK) {
     push @result, {
-        'code' => $nagios->check_threshold(check => $elapsed),
+        'code' => $monitor->check_threshold(check => $elapsed),
         'message' => "Check took to long: ${elapsed}ms",
     };
 } else {
@@ -182,4 +181,4 @@ foreach my $variant (@expected) {
 }
 
 # Pick higher code from results and join messages
-$nagios->nagios_exit(max(map { $_->{code} } @result), join "; ",map { $_->{message} } @result);
+$monitor->nagios_exit(max(map { $_->{code} } @result), join "; ",map { $_->{message} } @result);

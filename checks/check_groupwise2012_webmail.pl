@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright 2013 Michael Fladischer
+# Copyright 2015 Michael Fladischer
 # OpenServices e.U.
 # office@openservices.at
 #
@@ -29,10 +29,10 @@ use WWW::Mechanize;
 use Time::HiRes qw( gettimeofday tv_interval );
 use Log::Message::Simple qw[:STD :CARP];
 
-use Nagios::Plugin;
-use Nagios::Plugin::Performance use_die => 1;
+use Monitoring::Plugin;
+use Monitoring::Plugin::Performance use_die => 1;
 
-my $nagios = Nagios::Plugin->new(
+my $monitor = Monitoring::Plugin->new(
     shortname => "GROUPWISE 2012 WEBMAIL",
     version => "0.1",
     url => "http://openservices.at/services/infrastructure-monitoring/groupwise-2012-webmail",
@@ -50,57 +50,57 @@ my $nagios = Nagios::Plugin->new(
 );
 
 # add valid command line options and build them into your usage/help documentation.
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'host|H=s',
     help => "-H, --host=STRING\n".
         "The host to connect to.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'warning|w=i',
     help => "-w, --warning=INTEGER:INTEGER\n".
         "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'critical|c=i',
     help => "-c, --critical=INTEGER:INTEGER\n".
         "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'login|l=s',
     help => "-l, --login=STRING\n".
         "Username to login.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'password|p=s',
     help => "-p, --password=STRING\n".
         "Password used for authentication.",
     required => 1,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'port|o=i',
     help => "-o, --port=INTEGER\n".
         "Port used by the HTTP(S) server.",
     required => 0,
     default => 0,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'url|u=s',
     help => "-u, --url=STRING\n".
         "Base URL path for check (default: gw/webacc)",
     required => 0,
     default => "gw/webacc",
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'ssl|s',
     help => "-s, --ssl\n".
         "Use SSL/HTTPS",
     required => 0,
 );
-$nagios->add_arg(
+$monitor->add_arg(
     spec => 'debug|d',
     help => "-d, --debug\n".
         "Print debug information",
@@ -109,17 +109,17 @@ $nagios->add_arg(
 );
 
 # Parse @ARGV and process arguments.
-$nagios->getopts;
+$monitor->getopts;
 
 my $port;
-if ($nagios->opts->get('port') == 0) {
-    $port = $nagios->opts->get('ssl') ? 443 : 80;
+if ($monitor->opts->get('port') == 0) {
+    $port = $monitor->opts->get('ssl') ? 443 : 80;
 } else {
-    $port = $nagios->opts->get('port');
+    $port = $monitor->opts->get('port');
 }
-my $path = '/'.$nagios->opts->{url};
-my $host = $nagios->opts->get('host');
-my $url = sprintf("%s://%s:%i%s", $nagios->opts->get('ssl') ? "https" : "http", $host, $port, $path);
+my $path = '/'.$monitor->opts->{url};
+my $host = $monitor->opts->get('host');
+my $url = sprintf("%s://%s:%i%s", $monitor->opts->get('ssl') ? "https" : "http", $host, $port, $path);
 
 my $m = WWW::Mechanize->new(
     cookie_jar => {},
@@ -129,64 +129,64 @@ my $m = WWW::Mechanize->new(
 );
 
 # Register debug handlers
-$m->add_handler("request_send", sub { debug(shift->dump, $nagios->opts->{debug}); return });
-$m->add_handler("response_done", sub { debug(shift->dump, $nagios->opts->{debug}); return });
+$m->add_handler("request_send", sub { debug(shift->dump, $monitor->opts->{debug}); return });
+$m->add_handler("response_done", sub { debug(shift->dump, $monitor->opts->{debug}); return });
 
 # Start timer
 my $timer = [gettimeofday];
 
-msg("Fetching ".$url, $nagios->opts->{verbose});
+msg("Fetching ".$url, $monitor->opts->{verbose});
 $m->get($url);
-check_response($nagios, $m);
+check_response($monitor, $m);
 
-#msg("Adding header Cookie: PSESSIONID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1], $nagios->opts->{verbose});
+#msg("Adding header Cookie: PSESSIONID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1], $monitor->opts->{verbose});
 #$m->add_header("Cookie" => "PSESSIONID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1]);
 
-#msg("Fetching ".$url."wbanmeldung.durchfuehren", $nagios->opts->{verbose});
+#msg("Fetching ".$url."wbanmeldung.durchfuehren", $monitor->opts->{verbose});
 #$m->get($url."wbanmeldung.durchfuehren");
-#check_response($nagios, $m);
+#check_response($monitor, $m);
 #
-#msg("Adding header Cookie: PLOGINID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PLOGINID'}[1], $nagios->opts->{verbose});
+#msg("Adding header Cookie: PLOGINID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PLOGINID'}[1], $monitor->opts->{verbose});
 #$m->add_header("Cookie" => "PSESSIONID=" . $m->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1]."; PLOGINID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PLOGINID'}[1]);
 
-#msg("Fetching ".$url."wbanmeldung.durchfuehren?ctxid=check&cusergroup=&cinframe=&curl=", $nagios->opts->{verbose});
+#msg("Fetching ".$url."wbanmeldung.durchfuehren?ctxid=check&cusergroup=&cinframe=&curl=", $monitor->opts->{verbose});
 #$m->get($url."wbanmeldung.durchfuehren?ctxid=check&cusergroup=&cinframe=&curl=");
-#check_response($nagios, $m);
+#check_response($monitor, $m);
 
-msg("Submitting form", $nagios->opts->{verbose});
-$m->submit_form(form_name => "loginForm", fields => {"User.id" => $nagios->opts->{login}, "User.password" => $nagios->opts->{password}});
-check_response($nagios, $m);
+msg("Submitting form", $monitor->opts->{verbose});
+$m->submit_form(form_name => "loginForm", fields => {"User.id" => $monitor->opts->{login}, "User.password" => $monitor->opts->{password}});
+check_response($monitor, $m);
 
 my $content = $m->content;
 my ($userid) = ($content =~ /var userId = \"([\w\_]+)\";/);
-$nagios->nagios_exit(CRITICAL, "Could not authenticate as ".$nagios->opts->{login}) unless ($userid eq $nagios->opts->{login});
+$monitor->nagios_exit(CRITICAL, "Could not authenticate as ".$monitor->opts->{login}) unless ($userid eq $monitor->opts->{login});
 my ($firstName, $lastName) = ($content =~ /<TITLE>Novell GroupWise \((\w+) (\w+)\)<\/TITLE>/);
-$nagios->nagios_exit(CRITICAL, "Could not authenticate as ".$nagios->opts->{login}) unless (defined $lastName and defined $firstName);
+$monitor->nagios_exit(CRITICAL, "Could not authenticate as ".$monitor->opts->{login}) unless (defined $lastName and defined $firstName);
 
 # End timer
 my $elapsed = tv_interval($timer) * 1000;
 
 # Threshold check.
-my $code = $nagios->check_threshold(
+my $code = $monitor->check_threshold(
     check => $elapsed,
 );
 
 # Perfdata
-$nagios->add_perfdata(
+$monitor->add_perfdata(
     label => "Latency",
     value => $elapsed,
-    threshold => $nagios->threshold,
+    threshold => $monitor->threshold,
     uom => 'ms',
 );
 
 # Exit if WARNING or CRITICAL.
-$nagios->nagios_exit($code, "Check took to long with ${elapsed}ms for $firstName $lastName") if $code != OK;
+$monitor->nagios_exit($code, "Check took to long with ${elapsed}ms for $firstName $lastName") if $code != OK;
 # Exit OK.
-$nagios->nagios_exit(OK, "Check finished in ${elapsed}ms for $firstName $lastName");
+$monitor->nagios_exit(OK, "Check finished in ${elapsed}ms for $firstName $lastName");
 
 sub check_response {
-    my ($nagios, $m) = @_;
+    my ($monitor, $m) = @_;
     if (!$m->success()) {
-        $nagios->nagios_exit(CRITICAL, "Could not fetch ".$m->uri().": ".$m->status())
+        $monitor->nagios_exit(CRITICAL, "Could not fetch ".$m->uri().": ".$m->status())
     }
 }
