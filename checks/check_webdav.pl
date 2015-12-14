@@ -9,19 +9,19 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
 use lib "/usr/lib/nagios/plugins/";
 
-# Disable hostname verification for LWP::SSL because the CN of most 
+# Disable hostname verification for LWP::SSL because the CN of most
 # certificates does not match their internal hostname.
 BEGIN { $ENV{PERL_LWP_SSL_VERIFY_HOSTNAME} = 0 }
 
@@ -35,7 +35,7 @@ use Log::Message::Simple qw[:STD :CARP];
 use Nagios::Plugin;
 use Nagios::Plugin::Performance use_die => 1;
 
-my $nagios = Nagios::Plugin->new(  
+my $nagios = Nagios::Plugin->new(
     shortname => "WebDAV",
     version => "0.2",
     url => "http://openservices.at/services/infrastructure-monitoring/webdav",
@@ -120,7 +120,7 @@ my $url = sprintf("%s://%s:%i/%s", $nagios->opts->get('ssl') ? "https" : "http",
 
 $d->credentials(
   -user  => $nagios->opts->get('login'),
-  -pass  => $nagios->opts->get('password'), 
+  -pass  => $nagios->opts->get('password'),
   -url   => $url,
   -realm => $nagios->opts->get('realm'),
 );
@@ -162,7 +162,7 @@ $d->get( -url => "$url/nagios/testfile.nagios", -to => $fhdown->filename )
 msg("Comparing $fhdown with $fhup", $nagios->opts->get('verbose'));
 (compare($fhdown->filename, $fhup->filename) == 0)
     or $nagios->nagios_exit(CRITICAL, "Downloaded file differs from uploaded one");
-    
+
 # Remove uploaded file
 msg("Removing file $url/nagios/testfile.nagios", $nagios->opts->get('verbose'));
 $d->delete("testfile.nagios")
@@ -186,7 +186,7 @@ my $code = $nagios->check_threshold(
 );
 
 # Perfdata
-$nagios->add_perfdata( 
+$nagios->add_perfdata(
     label => "Latency",
     value => $elapsed,
     threshold => $nagios->threshold,
