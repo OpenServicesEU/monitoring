@@ -42,14 +42,16 @@ my $nagios = Nagios::Plugin->new(
         "[-v|--verbose] ".
         "[-t <timeout>] ".
         "-H <host> ".
-        "[-u <uri>] ".
-        "[-l <login>] ".
+        "--path=<path> ".
+        "-w <threshold> ".
+        "-c <threshold> ".
+        "-m (ping|queue|processes) ".
+        "[-P <port>] ".
+        "[-L <login>] ".
         "[-p <password>] ".
-        "[-I <ip>] ".
+        "[-r <realm>] ".
         "[-s|--ssl] ".
-        "[-m <mode>] ".
-        "[-w <threshold>] ".
-        "[-c <threshold>] ",
+        "[-I <ip>] ",
 );
 
 # add valid command line options and build them into your usage/help documentation.
