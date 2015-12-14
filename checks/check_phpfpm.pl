@@ -198,7 +198,6 @@ my %codemap = (
   'ping' => sub {
     my ($response) = @_;
     my $timer = [gettimeofday];
-    my $content = get_remote($uri);
     my $elapsed = tv_interval($timer) * 1000;
     if ($response->content ne "pong") {
       $nagios->nagios_exit(
