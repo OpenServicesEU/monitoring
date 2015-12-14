@@ -24,6 +24,7 @@ use lib "/usr/local/nagios/libexec/";
 use version;
 use URI;
 use LWP::UserAgent;
+use HTTP::Request;
 use File::Slurp;
 use XML::LibXML;
 use Time::HiRes qw(gettimeofday tv_interval);
@@ -130,124 +131,150 @@ $nagios->add_arg(
 # Parse @ARGV and process arguments.
 $nagios->getopts;
 
-
+# Construct URL
 my $uri = URI->new("http://");
-$uri->host($nagios->opts->get('host'));
+
+# See if we should use the `ip` parameter to connect to. Otherwise use the `host` parameter. This is used to query name
+# based virtual hosts.
+if ($nagios->opts->get('ip')) {
+  $uri->host($nagios->opts->get('ip'));
+} else {
+  $uri->host($nagios->opts->get('host'));
+}
+
+# Attach path to URL.
 $uri->path($nagios->opts->get('path'));
+
+# See if we should enable SSL for HTTPS.
 if ($nagios->opts->get('ssl')) {
   $uri->scheme('https');
 }
+
+# Override default port if needed.
 if ($nagios->opts->get('port')) {
   $uri->port($nagios->opts->get('port'));
 }
 
-sub get_remote {
-    my ($uri) =  @_;
-    my $ua = LWP::UserAgent->new;
-    if ($nagios->opts->get('login') && $nagios->opts->get('password')) {
-        $ua->credentials(
-          $uri->authority,
-          $nagios->opts->get('realm'),
-          $nagios->opts->get('login'),
-          $nagios->opts->get('password')
-        );
-    }
-    my $response = $ua->get($uri->as_string);
-    if ($response->code == 200) {
-        return $response->content;
-    } else {
-        $nagios->nagios_exit(
-            UNKNOWN,
-            sprintf(
-                'Could not fetch %s',
-                $uri->as_string
-            )
-        );
-    }
-}
-sub get_remote_xpath {
-    return XML::LibXML->load_xml(string => get_remote(@_));
+# Set query to `xml` so we get back XML formated responses.
+$uri->query('xml');
+
+# Set up user agent to fetch data.
+my $ua = LWP::UserAgent->new;
+
+# Initialize authentication for HTTP basic auth. This only happens if both `username` and `password` parameters are set.
+# The `realm` parameter is optional.
+if ($nagios->opts->get('login') && $nagios->opts->get('password')) {
+  $ua->credentials(
+    $uri->authority,
+    $nagios->opts->get('realm') || '*',
+    $nagios->opts->get('login'),
+    $nagios->opts->get('password')
+  );
 }
 
+# The main request.
+my $request = new HTTP::Request('GET', $uri->as_string);
+
+# Override the `Host` HTTP header by setting it to the value of the `host` parameter if the `ip` parameter is set. See
+# named based virtual hosts.
+if ($nagios->opts->get('ip')) {
+  $request->header('Host', $nagios->opts->get('host'));
+}
+
+# Fetch the data.
+my $response = $ua->request($request);
+
+# Fail with CRITICAL if we received any HTTP status code other than 200.
+if ($response->code != 200) {
+  $nagios->nagios_exit(
+    CRITICAL,
+    'Unable to fetch FPM response'
+  );
+}
+
+# The actual check logic map. Each key in the hash map contains a subroutine that does the actual checking of the
+# response content.
 my %codemap = (
-    'ping' => sub {
-        my $timer = [gettimeofday];
-        my $content = get_remote($uri);
-        my $elapsed = tv_interval($timer) * 1000;
-        if ($content eq "pong") {
-            $nagios->add_perfdata(
-                label => "Latency",
-                value => $elapsed,
-                threshold => $nagios->threshold,
-                uom => 'ms',
-            );
-            $nagios->nagios_exit(
-                OK,
-                sprintf(
-                    'Received PING response in %d milliseconds',
-                    $elapsed
-                )
-            );
-        }
-        $nagios->nagios_exit(
-            CRITICAL,
-            'Invalid response to PING request'
-        );
-    },
-    'queue' => sub {
-        $uri->query('xml');
-        my $status = get_remote_xpath($uri);
-        my $pool = $status->findvalue('/status/pool');
-        my $pending = $status->findvalue('/status/listen-queue');
-        my $maximum = $status->findvalue('/status/max-listen-queue');
-        $nagios->add_perfdata(
-            label => 'Pending',
-            value => $pending,
-            uom => 'requests',
-        );
-        $nagios->add_perfdata(
-            label => 'Maximum',
-            value => $maximum,
-            threshold => $nagios->threshold,
-            uom => 'requests',
-        );
-        my $code = $nagios->check_threshold($maximum);
-        $nagios->nagios_exit(
-            $code,
-            sprintf(
-                '%s: maximum requests in queue: %d',
-                $pool,
-                $maximum
-            )
-        );
-    },
-    'processes' => sub {
-        $uri->query('xml');
-        my $status = get_remote_xpath($uri);
-        my $pool = $status->findvalue('/status/pool');
-        my $active = $status->findvalue('/status/active-processes');
-        my $maximum = $status->findvalue('/status/max-active-processes');
-        $nagios->add_perfdata(
-            label => 'Active',
-            value => $active,
-            uom => 'processes',
-        );
-        $nagios->add_perfdata(
-            label => 'Maximum',
-            value => $maximum,
-            threshold => $nagios->threshold,
-            uom => 'processes',
-        );
-        my $code = $nagios->check_threshold($maximum);
-        $nagios->nagios_exit(
-            $code,
-            sprintf(
-                '%s: maximum active processes: %d',
-                $pool,
-                $maximum
-            )
-        );
-    },
+  'ping' => sub {
+    my ($response) = @_;
+    my $timer = [gettimeofday];
+    my $content = get_remote($uri);
+    my $elapsed = tv_interval($timer) * 1000;
+    if ($response->content ne "pong") {
+      $nagios->nagios_exit(
+        CRITICAL,
+        'Invalid response to PING request'
+      );
+    }
+    $nagios->add_perfdata(
+      label => "Latency",
+      value => $elapsed,
+      threshold => $nagios->threshold,
+      uom => 'ms',
+    );
+    $nagios->nagios_exit(
+      OK,
+      sprintf(
+        'Received PING response in %d milliseconds',
+        $elapsed
+      )
+    );
+  },
+  'queue' => sub {
+    my ($response) = @_;
+    my $status = XML::LibXML->load_xml($response->content);
+    my $pool = $status->findvalue('/status/pool');
+    my $pending = $status->findvalue('/status/listen-queue');
+    my $maximum = $status->findvalue('/status/max-listen-queue');
+    $nagios->add_perfdata(
+      label => 'Pending',
+      value => $pending,
+      uom => 'requests',
+    );
+    $nagios->add_perfdata(
+      label => 'Maximum',
+      value => $maximum,
+      threshold => $nagios->threshold,
+      uom => 'requests',
+    );
+    my $code = $nagios->check_threshold($maximum);
+    $nagios->nagios_exit(
+      $code,
+      sprintf(
+        '%s: maximum requests in queue: %d',
+        $pool,
+        $maximum
+      )
+    );
+  },
+  'processes' => sub {
+    my ($response) = @_;
+    my $status = XML::LibXML->load_xml($response->content);
+    my $pool = $status->findvalue('/status/pool');
+    my $active = $status->findvalue('/status/active-processes');
+    my $maximum = $status->findvalue('/status/max-active-processes');
+    $nagios->add_perfdata(
+      label => 'Active',
+      value => $active,
+      uom => 'processes',
+    );
+    $nagios->add_perfdata(
+      label => 'Maximum',
+      value => $maximum,
+      threshold => $nagios->threshold,
+      uom => 'processes',
+    );
+    my $code = $nagios->check_threshold($maximum);
+    $nagios->nagios_exit(
+      $code,
+      sprintf(
+        '%s: maximum active processes: %d',
+        $pool,
+        $maximum
+      )
+    );
+  },
 );
 
-$codemap{$nagios->opts->get('mode')}();
+# Fetch check subroutine based on the `mode` parameter and call it with the response.
+$codemap{$nagios->opts->get('mode')}($response);
