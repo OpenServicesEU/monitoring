@@ -239,7 +239,7 @@ my %codemap = (
   },
   'queue' => sub {
     my ($response) = @_;
-    my $status = XML::LibXML->load_xml($response->content);
+    my $status = XML::LibXML->load_xml(string => $response->content);
     my $pool = $status->findvalue('/status/pool');
     my $pending = $status->findvalue('/status/listen-queue');
     my $maximum = $status->findvalue('/status/max-listen-queue');
@@ -266,7 +266,7 @@ my %codemap = (
   },
   'processes' => sub {
     my ($response) = @_;
-    my $status = XML::LibXML->load_xml($response->content);
+    my $status = XML::LibXML->load_xml(string => $response->content);
     my $pool = $status->findvalue('/status/pool');
     my $active = $status->findvalue('/status/active-processes');
     my $maximum = $status->findvalue('/status/max-active-processes');
