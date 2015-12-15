@@ -26,7 +26,7 @@ use lib "/usr/lib/nagios/plugins/";
 BEGIN { $ENV{PERL_LWP_SSL_VERIFY_HOSTNAME} = 0 }
 
 use URI;
-use WWW::Mechanize;
+use LWP::UserAgent;
 use Time::HiRes qw( gettimeofday tv_interval );
 use Log::Message::Simple qw[:STD :CARP];
 
@@ -151,84 +151,191 @@ if ($monitor->opts->get('ip')) {
   $headers->header(Host => $monitor->opts->get('host'));
 }
 
-my $m = WWW::Mechanize->new(
+my $ua = LWP::UserAgent->new(
     cookie_jar => {},
-    autocheck => 0,
     default_headers => $headers,
 );
 
 # Register debug handlers
-$m->add_handler("request_send", sub { debug(shift->dump, $monitor->opts->{debug}); return });
-$m->add_handler("response_done", sub { debug(shift->dump, $monitor->opts->{debug}); return });
+$ua->add_handler(
+  "request_send",
+  sub {
+    debug(shift->dump, $monitor->opts->{debug});
+    return;
+  }
+);
+$ua->add_handler(
+  "response_done",
+  sub {
+    debug(shift->dump, $monitor->opts->{debug});
+    return;
+  }
+);
 
 my $url;
+my $response;
 
 # Start timer
 my $timer = [gettimeofday];
 
 $url = $uri->clone;
 $url->path_segments($uri->path_segments, "webnav.ini");
-msg("Fetching ".$url->as_string, $monitor->opts->{verbose});
-$m->get($url->as_string);
-check_response($monitor, $m);
+msg(
+  sprintf(
+    "Fetching %s",
+    $url->as_string
+  ),
+  $monitor->opts->{verbose}
+);
+$response = $ua->get($url->as_string);
+check_response($monitor, $response);
 
-msg("Adding header Cookie: PSESSIONID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1], $monitor->opts->{verbose});
-$m->add_header("Cookie" => "PSESSIONID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1]);
+msg(
+  sprintf(
+    "Adding header Cookie: PSESSIONID=%s",
+    $ua->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1]
+  ),
+  $monitor->opts->{verbose}
+);
+$ua->default_header(
+  "Cookie" => sprintf(
+    "PSESSIONID=%s",
+    $ua->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1]
+  )
+);
 
 $url = $uri->clone;
 $url->path_segments($uri->path_segments, "wbanmeldung.durchfuehren");
-msg("Fetching ".$url->as_string, $monitor->opts->{verbose});
-$m->get($url->as_string);
-check_response($monitor, $m);
+msg(
+  sprintf(
+    "Fetching %s",
+    $url->as_string
+  ),
+  $monitor->opts->{verbose}
+);
+$response = $ua->get($url->as_string);
+check_response($monitor, $response);
 
-msg("Adding header Cookie: PLOGINID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PLOGINID'}[1], $monitor->opts->{verbose});
-$m->add_header("Cookie" => "PSESSIONID=" . $m->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1]."; PLOGINID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PLOGINID'}[1]);
+msg(
+  sprintf(
+    "Adding header Cookie: PLOGINID=%s",
+    $ua->cookie_jar->{COOKIES}{$host}{$path}{'PLOGINID'}[1]
+  ),
+  $monitor->opts->{verbose}
+);
+$ua->default_header(
+  "Cookie" => sprintf(
+    "PSESSIONID=%s; PLOGINID=%s",
+    $ua->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1],
+    $ua->cookie_jar->{COOKIES}{$host}{$path}{'PLOGINID'}[1]
+  )
+);
 
 $url = $uri->clone;
 $url->path_segments($uri->path_segments, "wbanmeldung.durchfuehren");
 $url->query("ctxid=check&cusergroup=&cinframe=&curl=");
-msg("Fetching ".$url->as_string, $monitor->opts->{verbose});
-$m->get($url->as_string);
-check_response($monitor, $m);
+msg(
+  sprintf(
+    "Fetching %s",
+    $url->as_string
+  ),
+  $monitor->opts->{verbose}
+);
+$response = $ua->get($url->as_string);
+check_response($monitor, $response);
 
+$url = $uri->clone;
+$url->path_segments($uri->path_segments, "wbAnmeldung.durchfuehren");
 msg("Submitting form", $monitor->opts->{verbose});
-$m->submit_form(
-  form_name => "dia",
-  fields => {
+$response = $ua->post(
+  $url->as_string,
+  {
     cp1 => $monitor->opts->{login},
-    cp2 => $monitor->opts->{password}
+    cp2 => $monitor->opts->{password},
+    ctxid => "check",
+    curl => undef,
+    cinframe => undef,
+    pLogonMask => undef
   }
 );
-check_response($monitor, $m);
+check_response($monitor, $response);
 
-my $content = $m->content;
+my ($rpath, $rquery) = split /\?/, $response->header("Location");
+$url = $uri->clone;
+$url->path_segments($uri->path_segments, $rpath);
+$url->query($rquery);
+msg(
+  sprintf(
+    "Fetching %s",
+    $url->as_string
+  ),
+  $monitor->opts->{verbose}
+);
+$response = $ua->get($url->as_string);
+check_response($monitor, $response);
+
+my $content = $response->content;
 my ($lastName, $firstName) = ($content =~ /Visitenkarte von (\w+), (\w+)/);
-$monitor->nagios_exit(CRITICAL, "Could not authenticate as ".$monitor->opts->{login}) unless (defined $lastName and defined $firstName);
+if (!defined $lastName or !defined $firstName) {
+  $monitor->nagios_exit(
+    CRITICAL,
+    sprintf(
+      "Could not authenticate as %s",
+      $monitor->opts->{login}
+    )
+  );
+}
 
 # End timer
 my $elapsed = tv_interval($timer) * 1000;
 
 # Threshold check.
 my $code = $monitor->check_threshold(
-    check => $elapsed,
+  check => $elapsed,
 );
 
 # Perfdata
 $monitor->add_perfdata(
-    label => "Latency",
-    value => $elapsed,
-    threshold => $monitor->threshold,
-    uom => 'ms',
+  label => "Latency",
+  value => $elapsed,
+  threshold => $monitor->threshold,
+  uom => 'ms',
 );
 
 # Exit if WARNING or CRITICAL.
-$monitor->nagios_exit($code, "Check took to long with ${elapsed}ms for $firstName $lastName") if $code != OK;
+if ($code != OK) {
+  $monitor->nagios_exit(
+    $code,
+    sprintf(
+      "Check took to long with %dms for %s %s",
+      $elapsed,
+      $firstName,
+      $lastName
+    )
+  );
+}
+
 # Exit OK.
-$monitor->nagios_exit(OK, "Check finished in ${elapsed}ms for $firstName $lastName");
+$monitor->nagios_exit(
+  OK,
+  sprintf(
+    "Check finished in %dms for %s %s",
+    $elapsed,
+    $firstName,
+    $lastName
+  )
+);
 
 sub check_response {
-    my ($monitor, $m) = @_;
-    if (!$m->success()) {
-        $monitor->nagios_exit(CRITICAL, "Could not fetch ".$m->uri().": ".$m->status())
-    }
+  my ($monitor, $response) = @_;
+  if ($response->is_error) {
+    $monitor->nagios_exit(
+      CRITICAL,
+      sprintf(
+        "Could not fetch %s: %s",
+        $response->request->uri,
+        $response->status_line
+      )
+    );
+  }
 }
