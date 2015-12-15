@@ -161,7 +161,18 @@ if ($monitor->opts->get('port')) {
 $uri->query('xml');
 
 # Set up user agent to fetch data.
-my $ua = LWP::UserAgent->new;
+my $headers = HTTP::Headers->new(
+  User_Agent => $monitor->shortname,
+);
+
+if ($monitor->opts->get('ip')) {
+  $headers->header(Host => $monitor->opts->get('host'));
+}
+
+my $ua = LWP::UserAgent->new(
+    cookie_jar => {},
+    default_headers => $headers,
+);
 
 # Register debug handlers
 $ua->add_handler(
@@ -190,20 +201,11 @@ if ($monitor->opts->get('login') && $monitor->opts->get('password')) {
   );
 }
 
-# The main request.
-my $request = new HTTP::Request('GET', $uri->as_string);
-
-# Override the `Host` HTTP header by setting it to the value of the `host` parameter if the `ip` parameter is set. See
-# named based virtual hosts.
-if ($monitor->opts->get('ip')) {
-  $request->header('Host', $monitor->opts->get('host'));
-}
-
 # Fetch the data.
-my $response = $ua->request($request);
+my $response = $ua->get($uri->as_string);
 
 # Fail with CRITICAL if we received any HTTP status code other than 200.
-if ($response->code != 200) {
+if ($response->is_error) {
   $monitor->nagios_exit(
     CRITICAL,
     'Unable to fetch FPM response'
