@@ -20,13 +20,9 @@
 
 use strict;
 
-# Disable hostname verification for LWP::SSL because the CN of most
-# certificates does not match their internal hostname.
-BEGIN { $ENV{PERL_LWP_SSL_VERIFY_HOSTNAME} = 0 }
-
-use IO::Handle;
+use URI;
 use HTTP::DAV;
-require File::Temp;
+use File::Temp;
 use File::Compare;
 use Time::HiRes qw( gettimeofday tv_interval );
 use Log::Message::Simple qw[:STD :CARP];
@@ -35,164 +31,386 @@ use Monitoring::Plugin;
 use Monitoring::Plugin::Performance use_die => 1;
 
 my $monitor = Monitoring::Plugin->new(
-    shortname => "WebDAV",
-    version => "0.2",
-    url => "http://openservices.at/services/infrastructure-monitoring/webdav",
-    usage => "Usage: %s ".
-        "[-v|--verbose] ".
-        "[-t <timeout>] ".
-        "-H <host> ".
-        "-l <login> ".
-        "-p <password> ".
-        "[-t <port>] ".
-        "-u <uri> ".
-        "-r <realm> ".
-        "[-s] ".
-        "-w <threshold> ".
-        "-c <threshold> ",
+  shortname => "WebDAV",
+  version => "0.2",
+  url => "http://openservices.at/services/infrastructure-monitoring/webdav",
+  usage => "Usage: %s ".
+  "[-v|--verbose] ".
+  "[-t <timeout>] ".
+  "-H <host> ".
+  "-l <login> ".
+  "-p <password> ".
+  "-r <realm> ".
+  "--path=<path> ".
+  "-w <threshold> ".
+  "-c <threshold> ".
+  "[-I <ip>] ".
+  "[-P <port>] ".
+  "[-s] ",
 );
 
 # add valid command line options and build them into your usage/help documentation.
 $monitor->add_arg(
-    spec => 'host|H=s',
-    help => "-H, --host=STRING\n".
-        "The host to connect to.",
-    required => 1,
+  spec => 'host|H=s',
+  help => "-H, --host=STRING\n".
+  "The host to connect to.",
+  required => 1,
 );
 $monitor->add_arg(
-    spec => 'warning|w=i',
-    help => "-w, --warning=INTEGER:INTEGER\n".
-        "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
-    required => 1,
+  spec => 'warning|w=i',
+  help => "-w, --warning=INTEGER:INTEGER\n".
+  "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
+  required => 1,
 );
 $monitor->add_arg(
-    spec => 'critical|c=i',
-    help => "-c, --critical=INTEGER:INTEGER\n".
-        "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
-    required => 1,
+  spec => 'critical|c=i',
+  help => "-c, --critical=INTEGER:INTEGER\n".
+  "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
+  required => 1,
 );
 $monitor->add_arg(
-    spec => 'login|l=s',
-    help => "-l, --login=STRING\n".
-        "Username to login.",
-    required => 1,
+  spec => 'login|l=s',
+  help => "-l, --login=STRING\n".
+  "Username to login.",
+  required => 1,
 );
 $monitor->add_arg(
-    spec => 'password|p=s',
-    help => "-p, --password=STRING\n".
-        "Password used for authentication.",
-    required => 1,
+  spec => 'password|p=s',
+  help => "-p, --password=STRING\n".
+  "Password used for authentication.",
+  required => 1,
 );
 $monitor->add_arg(
-    spec => 'port|o=i',
-    help => "-o, --port=INTEGER\n".
-        "Port used by the WebDAV server.",
-    required => 0,
-    default => 80,
+  spec => 'realm|r=s',
+  help => "-r, --realm=STRING\n".
+  "Realm used in authentication",
+  required => 1,
 );
 $monitor->add_arg(
-    spec => 'url|u=s',
-    help => "-u, --url=STRING\n".
-        "URL path for check (e.g. /user/test)",
-    required => 1,
+  spec => 'path=s',
+  help => "--path=STRING\n".
+  "Path for check (e.g. /user/test)",
+  required => 1,
 );
 $monitor->add_arg(
-    spec => 'realm|r=s',
-    help => "-r, --realm=STRING\n".
-        "Realm used in authentication",
-    required => 1,
+  spec => 'port|P=i',
+  help => "-P, --port=INTEGER\n".
+  "Port used by the WebDAV server.",
+  required => 0,
 );
 $monitor->add_arg(
-    spec => 'ssl|s',
-    help => "-s, --ssl\n".
-        "Use SSL/HTTPS",
-    required => 0,
+  spec => 'ip|I=s',
+  help => "-I, --IP=STRING\n".
+  "The IP to connect to. If this is set, the host parameter is sent in the Host HTTP header field.",
+  required => 0,
+);
+$monitor->add_arg(
+  spec => 'ssl|s',
+  help => "-s, --ssl\n".
+  "Use SSL/HTTPS",
+  required => 0,
 );
 
 # Parse @ARGV and process arguments.
 $monitor->getopts;
 
+my $uri = URI->new("http://");
+
+# See if we should use the `ip` parameter to connect to. Otherwise use the `host` parameter. This is used to query name
+# based virtual hosts.
+if ($monitor->opts->get('ip')) {
+  $uri->host($monitor->opts->get('ip'));
+} else {
+  $uri->host($monitor->opts->get('host'));
+}
+
+# Attach path to URL.
+$uri->path($monitor->opts->get('path'));
+
+# See if we should enable SSL for HTTPS.
+if ($monitor->opts->get('ssl')) {
+  $uri->scheme('https');
+}
+
+# Override default port if needed.
+if ($monitor->opts->get('port')) {
+  $uri->port($monitor->opts->get('port'));
+}
+
+my $headers = HTTP::Headers->new(
+  User_Agent => $monitor->shortname,
+);
+
+if ($monitor->opts->get('ip')) {
+  $headers->header(Host => $monitor->opts->get('host'));
+}
+
+my $ua = HTTP::DAV::UserAgent->new(
+  cookie_jar => {},
+  default_headers => $headers,
+);
+
+# Register debug handlers
+$ua->add_handler(
+  "request_send",
+  sub {
+    debug(shift->dump, $monitor->opts->{debug});
+    return;
+  }
+);
+$ua->add_handler(
+  "response_done",
+  sub {
+    debug(shift->dump, $monitor->opts->{debug});
+    return;
+  }
+);
 my $timer = [gettimeofday];
 
-my $d = HTTP::DAV->new();
-my $url = sprintf("%s://%s:%i/%s", $monitor->opts->get('ssl') ? "https" : "http", $monitor->opts->get('host'), $monitor->opts->get('port'), $monitor->opts->get('url'));
+my $d = HTTP::DAV->new(-useragent=>$ua);
 
 $d->credentials(
+  -url   => $uri->as_string,
   -user  => $monitor->opts->get('login'),
   -pass  => $monitor->opts->get('password'),
-  -url   => $url,
   -realm => $monitor->opts->get('realm'),
 );
 
-msg("Connecting to $url", $monitor->opts->get('verbose'));
-$d->open( -url => $url )
-    or $monitor->nagios_exit(CRITICAL, "Couldn't open $url: ".$d->message);
+msg(
+  sprintf(
+    "Connecting to %s",
+    $uri->as_string
+  ),
+  $monitor->opts->get('verbose')
+);
+if (!$d->open(-url => $uri->as_string)) {
+  $monitor->nagios_exit(
+    CRITICAL,
+    sprintf(
+      "Couldn't open %s: %s",
+      $uri->as_string,
+      $d->message
+    )
+  );
+}
+
+my $url;
 
 # Make a new directory
-msg("Creating directory $url/nagios", $monitor->opts->get('verbose'));
-$d->mkcol( -url => "$url/nagios" )
-    or $monitor->nagios_exit(CRITICAL, "Could not create directory $url/nagios: ".$d->message);
+$url = $uri->clone;
+$url->path_segments($uri->path_segments, "nagios");
+msg(
+  sprintf(
+    "Creating directory %s",
+    $url->as_string
+  ),
+  $monitor->opts->get('verbose')
+);
+if (!$d->mkcol(-url => $url->as_string)) {
+  $monitor->nagios_exit(
+    CRITICAL,
+    sprintf(
+      "Could not create directory %s: %s",
+      $url->as_string,
+      $d->message
+    )
+  );
+}
 
 # Change to the newly created directory
-msg("Changing directory to $url/nagios", $monitor->opts->get('verbose'));
-$d->cwd("nagios")
-    or $monitor->nagios_exit(CRITICAL, "Could not change to directory $url/nagios: ".$d->message);
+msg(
+  sprintf(
+    "Changing directory to %s",
+    $url->as_string
+  ),
+  $monitor->opts->get('verbose')
+);
+if (!$d->cwd("nagios")) {
+  $monitor->nagios_exit(
+    CRITICAL,
+    sprintf(
+      "Could not change to directory %s :%s",
+      $url->as_string,
+      $d->message
+    )
+  );
+}
 
 my $fhup = File::Temp->new(SUFFIX => '.nagios');
-msg("Using local file $fhup for upload", $monitor->opts->get('verbose'));
+msg(
+  sprintf(
+    "Using local file for upload: %s",
+    $fhup
+  ),
+  $monitor->opts->get('verbose')
+);
 $fhup->autoflush(1);
-open RANDOM, "</dev/urandom"
-    or $monitor->nagios_exit(UNKNOWN, "Internal check error at opening /dev/urandom: ".$!);
+if (!open RANDOM, "</dev/urandom") {
+  $monitor->nagios_exit(
+    UNKNOWN,
+    sprintf(
+      "Internal check error at opening /dev/urandom: %s",
+      $!
+    )
+  );
+}
+
 my $data;
 read RANDOM, $data, 128;
 print $fhup $data;
 close RANDOM;
+
 # Upload file to newly created directory
-msg("Uploading file to $url/nagios", $monitor->opts->get('verbose'));
-$d->put( -local => $fhup->filename, -url => "$url/nagios/testfile.nagios" )
-    or $monitor->nagios_exit(CRITICAL, "Could not upload file to directory $url/nagios/testfile.nagios: ".$d->message);
+$url = $uri->clone;
+$url->path_segments($uri->path_segments, "nagios", "testfile.nagios");
+msg(
+  sprintf(
+    "Uploading file to %s",
+    $url->as_string
+  ),
+  $monitor->opts->get('verbose')
+);
+if (!$d->put(-local => $fhup->filename, -url => $url->as_string)) {
+  $monitor->nagios_exit(
+    CRITICAL,
+    sprintf(
+      "Could not upload file to directory %s: %s",
+      $url->as_string,
+      $d->message
+    )
+  );
+}
 
 my $fhdown = File::Temp->new(SUFFIX => '.nagios');
-msg("Using local file $fhdown for download", $monitor->opts->get('verbose'));
-msg("Downloading file from $url/nagios", $monitor->opts->get('verbose'));
-$d->get( -url => "$url/nagios/testfile.nagios", -to => $fhdown->filename )
-    or $monitor->nagios_exit(CRITICAL, "Could not download file to directory $url/nagios/testfile.nagios: ".$d->message);
+msg(
+  sprintf(
+    "Using local file for download: %s",
+    $fhdown
+  ),
+  $monitor->opts->get('verbose')
+);
+msg(
+  sprintf(
+    "Downloading file from %s",
+    $url->as_string
+  ),
+  $monitor->opts->get('verbose')
+);
+if (!$d->get(-url => $url->as_string, -to => $fhdown->filename)) {
+  $monitor->nagios_exit(
+    CRITICAL,
+    sprintf(
+      "Could not download file to directory %s: %s",
+      $url->as_string,
+      $d->message
+    )
+  );
+}
 
-msg("Comparing $fhdown with $fhup", $monitor->opts->get('verbose'));
-(compare($fhdown->filename, $fhup->filename) == 0)
-    or $monitor->nagios_exit(CRITICAL, "Downloaded file differs from uploaded one");
+msg(
+  sprintf(
+    "Comparing %s with %s",
+    $fhdown,
+    $fhup
+  ),
+  $monitor->opts->get('verbose')
+);
+if (compare($fhdown->filename, $fhup->filename) != 0) {
+  $monitor->nagios_exit(
+    CRITICAL,
+    "Downloaded file differs from uploaded one"
+  );
+}
 
 # Remove uploaded file
-msg("Removing file $url/nagios/testfile.nagios", $monitor->opts->get('verbose'));
-$d->delete("testfile.nagios")
-    or $monitor->nagios_exit(CRITICAL, "Could not remove testfile.nagios from directory $url/nagios: ".$d->message);
+msg(
+  sprintf(
+    "Removing file %s",
+    $url->as_string
+  ),
+  $monitor->opts->get('verbose')
+);
+if (!$d->delete("testfile.nagios")) {
+  $monitor->nagios_exit(
+    CRITICAL,
+    sprintf(
+      "Could not remove %s: %s",
+      $url->as_string,
+      $d->message
+    )
+  );
+}
 
 # Change to the parent directory before removing the previously created directory
-msg("Changing directory to $url", $monitor->opts->get('verbose'));
-$d->cwd("..")
-  or $monitor->nagios_exit(CRITICAL, "Could not change to directory $url: ".$d->message);
+msg(
+  sprintf(
+    "Changing directory to %s",
+    $url->as_string
+  ),
+  $monitor->opts->get('verbose')
+);
+if (!$d->cwd("..")) {
+  $monitor->nagios_exit(
+    CRITICAL,
+    sprintf(
+      "Could not change to directory %s: %s",
+      $url->as_string,
+      $d->message
+    )
+  );
+}
 
 # Remove the previously created directory
-msg("Removing directory $url/nagios", $monitor->opts->get('verbose'));
-$d->delete("nagios")
-  or $monitor->nagios_exit(CRITICAL, "Could not remove directory $url/nagios: ".$d->message);
+$url = $uri->clone;
+$url->path_segments($uri->path_segments, "nagios");
+msg(
+  sprintf(
+    "Removing directory %s",
+    $url->as_string
+  ),
+  $monitor->opts->get('verbose')
+);
+if (!$d->delete("nagios")) {
+  $monitor->nagios_exit(
+    CRITICAL,
+    sprintf(
+      "Could not remove directory %s: %s",
+      $url->as_string,
+      $d->message
+    )
+  );
+}
 
 my $elapsed = tv_interval($timer) * 1000;
 
 # Threshold check.
 my $code = $monitor->check_threshold(
-    check => $elapsed,
+  check => $elapsed,
 );
 
 # Perfdata
 $monitor->add_perfdata(
-    label => "Latency",
-    value => $elapsed,
-    threshold => $monitor->threshold,
-    uom => 'ms',
+  label => "Latency",
+  value => $elapsed,
+  threshold => $monitor->threshold,
+  uom => 'ms',
 );
 
 # Exit if WARNING or CRITICAL.
-$monitor->nagios_exit($code, "Check took to long with ${elapsed}ms") if $code != OK;
+if ($code != OK) {
+  $monitor->nagios_exit(
+    $code,
+    sprintf(
+      "Check took to long with %dms",
+      $elapsed
+    )
+  );
+}
 # Exit OK.
-$monitor->nagios_exit(OK, "Check finished in ${elapsed}ms");
+$monitor->nagios_exit(
+  OK,
+  sprintf(
+    "Check finished in %dms",
+    $elapsed
+  )
+);
