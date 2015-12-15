@@ -25,6 +25,7 @@ use lib "/usr/lib/nagios/plugins/";
 # certificates does not match their internal hostname.
 BEGIN { $ENV{PERL_LWP_SSL_VERIFY_HOSTNAME} = 0 }
 
+use URI;
 use WWW::Mechanize;
 use Time::HiRes qw( gettimeofday tv_interval );
 use Log::Message::Simple qw[:STD :CARP];
@@ -40,13 +41,13 @@ my $monitor = Monitoring::Plugin->new(
         "[-v|--verbose] ".
         "[-t <timeout>] ".
         "-H <host> ".
+        "--path=<path> ".
         "-l <login> ".
         "-p <password> ".
-        "[-t <port>] ".
-        "-u <uri> ".
-        "[-s] ".
         "-w <threshold> ".
-        "-c <threshold> ",
+        "-c <threshold> ".
+        "[-P <port>] ".
+        "[-s] ",
 );
 
 # add valid command line options and build them into your usage/help documentation.
@@ -81,23 +82,28 @@ $monitor->add_arg(
     required => 1,
 );
 $monitor->add_arg(
-    spec => 'port|o=i',
-    help => "-o, --port=INTEGER\n".
+    spec => 'port|P=i',
+    help => "-P, --port=INTEGER\n".
         "Port used by the HTTP server.",
     required => 0,
-    default => 80,
 );
 $monitor->add_arg(
-    spec => 'url|u=s',
-    help => "-u, --url=STRING\n".
-        "Base URL path for check (default: mug_online/)",
+    spec => 'path=s',
+    help => "--path=STRING\n".
+        "Base path for check (default: mug_online)",
     required => 0,
-    default => "mug_online/",
+    default => "mug_online",
 );
 $monitor->add_arg(
     spec => 'ssl|s',
     help => "-s, --ssl\n".
         "Use SSL/HTTPS",
+    required => 0,
+);
+$monitor->add_arg(
+    spec => 'ip|I=s',
+    help => "-I, --IP=STRING\n".
+        "The IP to connect to. If this is set, the host parameter is sent in the Host HTTP header field.",
     required => 0,
 );
 $monitor->add_arg(
@@ -111,43 +117,88 @@ $monitor->add_arg(
 # Parse @ARGV and process arguments.
 $monitor->getopts;
 
-my $url = sprintf("%s://%s:%i/%s", $monitor->opts->get('ssl') ? "https" : "http", $monitor->opts->get('host'), $monitor->opts->get('port'), $monitor->opts->get('url'));
-my $path = '/'.$monitor->opts->{url};
-my $host = $monitor->opts->get('host');
+my $uri = URI->new("http://");
+
+# See if we should use the `ip` parameter to connect to. Otherwise use the `host` parameter. This is used to query name
+# based virtual hosts.
+if ($monitor->opts->get('ip')) {
+  $uri->host($monitor->opts->get('ip'));
+} else {
+  $uri->host($monitor->opts->get('host'));
+}
+
+# Attach path to URL.
+$uri->path($monitor->opts->get('path'));
+
+# See if we should enable SSL for HTTPS.
+if ($monitor->opts->get('ssl')) {
+  $uri->scheme('https');
+}
+
+# Override default port if needed.
+if ($monitor->opts->get('port')) {
+  $uri->port($monitor->opts->get('port'));
+}
+
+my $path = sprintf("%s/", $uri->path);
+my $host = $uri->host;
+
+my $headers = HTTP::Headers->new(
+  User_Agent => $monitor->shortname,
+);
+
+if ($monitor->opts->get('ip')) {
+  $headers->header(Host => $monitor->opts->get('host'));
+}
 
 my $m = WWW::Mechanize->new(
     cookie_jar => {},
-    ssl_opts => {SSL_version => 'SSLv3'}, # Oracle decided to mess with Apache mod_ssl up to a point where it breaks :-(
     autocheck => 0,
+    default_headers => $headers,
 );
 
 # Register debug handlers
 $m->add_handler("request_send", sub { debug(shift->dump, $monitor->opts->{debug}); return });
 $m->add_handler("response_done", sub { debug(shift->dump, $monitor->opts->{debug}); return });
 
+my $url;
+
 # Start timer
 my $timer = [gettimeofday];
 
-msg("Fetching ".$url."webnav.ini", $monitor->opts->{verbose});
-$m->get($url."webnav.ini");
+$url = $uri->clone;
+$url->path_segments($uri->path_segments, "webnav.ini");
+msg("Fetching ".$url->as_string, $monitor->opts->{verbose});
+$m->get($url->as_string);
 check_response($monitor, $m);
 
 msg("Adding header Cookie: PSESSIONID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1], $monitor->opts->{verbose});
 $m->add_header("Cookie" => "PSESSIONID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1]);
 
-msg("Fetching ".$url."wbanmeldung.durchfuehren", $monitor->opts->{verbose});
-$m->get($url."wbanmeldung.durchfuehren");
+$url = $uri->clone;
+$url->path_segments($uri->path_segments, "wbanmeldung.durchfuehren");
+msg("Fetching ".$url->as_string, $monitor->opts->{verbose});
+$m->get($url->as_string);
 check_response($monitor, $m);
 
 msg("Adding header Cookie: PLOGINID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PLOGINID'}[1], $monitor->opts->{verbose});
 $m->add_header("Cookie" => "PSESSIONID=" . $m->cookie_jar->{COOKIES}{$host}{$path}{'PSESSIONID'}[1]."; PLOGINID=".$m->cookie_jar->{COOKIES}{$host}{$path}{'PLOGINID'}[1]);
 
-msg("Fetching ".$url."wbanmeldung.durchfuehren?ctxid=check&cusergroup=&cinframe=&curl=", $monitor->opts->{verbose});
-$m->get($url."wbanmeldung.durchfuehren?ctxid=check&cusergroup=&cinframe=&curl=");
+$url = $uri->clone;
+$url->path_segments($uri->path_segments, "wbanmeldung.durchfuehren");
+$url->query("ctxid=check&cusergroup=&cinframe=&curl=");
+msg("Fetching ".$url->as_string, $monitor->opts->{verbose});
+$m->get($url->as_string);
 check_response($monitor, $m);
 
 msg("Submitting form", $monitor->opts->{verbose});
-$m->submit_form(form_name => "dia", fields => {cp1 => $monitor->opts->{login}, cp2 => $monitor->opts->{password}});
+$m->submit_form(
+  form_name => "dia",
+  fields => {
+    cp1 => $monitor->opts->{login},
+    cp2 => $monitor->opts->{password}
+  }
+);
 check_response($monitor, $m);
 
 my $content = $m->content;
