@@ -21,15 +21,10 @@
 use strict;
 use lib "/usr/local/nagios/libexec/";
 
-use version;
 use URI;
 use LWP::UserAgent;
-use HTTP::Request;
-use File::Slurp;
 use XML::LibXML;
 use Time::HiRes qw(gettimeofday tv_interval);
-use Compress::Zlib;
-use Digest::MD5;
 use Log::Message::Simple qw[:STD :CARP];
 
 use Monitoring::Plugin;
