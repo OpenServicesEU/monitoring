@@ -122,6 +122,13 @@ $monitor->add_arg(
         "       \"processes\"  check the maximum recorded number of active processes",
     required => 1,
 );
+$monitor->add_arg(
+    spec => 'debug|d',
+    help => "-d, --debug\n".
+        "Print debug information",
+    required => 0,
+    default => 0,
+);
 
 # Parse @ARGV and process arguments.
 $monitor->getopts;
@@ -155,6 +162,22 @@ $uri->query('xml');
 
 # Set up user agent to fetch data.
 my $ua = LWP::UserAgent->new;
+
+# Register debug handlers
+$ua->add_handler(
+  "request_send",
+  sub {
+    debug(shift->dump, $monitor->opts->{debug});
+    return;
+  }
+);
+$ua->add_handler(
+  "response_done",
+  sub {
+    debug(shift->dump, $monitor->opts->{debug});
+    return;
+  }
+);
 
 # Initialize authentication for HTTP basic auth. This only happens if both `username` and `password` parameters are set.
 # The `realm` parameter is optional.
