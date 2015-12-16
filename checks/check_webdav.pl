@@ -110,6 +110,12 @@ $monitor->add_arg(
   "Use SSL/HTTPS",
   required => 0,
 );
+$monitor->add_arg(
+  spec => 'debug|d',
+  help => "-d, --debug\n".
+  "Print debug information",
+  required => 0,
+);
 
 # Parse @ARGV and process arguments.
 $monitor->getopts;
