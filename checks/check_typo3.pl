@@ -21,7 +21,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
-use lib "/usr/local/nagios/libexec/";
+use warnings;
 
 use version;
 use LWP::UserAgent;
