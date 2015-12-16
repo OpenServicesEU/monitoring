@@ -136,15 +136,8 @@ $monitor->getopts;
 # Construct URL
 my $uri = URI->new("http://");
 
-# See if we should use the `ip` parameter to connect to. Otherwise use the `host` parameter. This is used to query name
-# based virtual hosts.
-if ($monitor->opts->get('ip')) {
-  $uri->host($monitor->opts->get('ip'));
-} else {
-  $uri->host($monitor->opts->get('host'));
-}
-
-# Attach path to URL.
+# Attach host and path to URL.
+$uri->host($monitor->opts->get('host'));
 $uri->path($monitor->opts->get('path'));
 
 # See if we should enable SSL for HTTPS.
@@ -165,13 +158,21 @@ my $headers = HTTP::Headers->new(
   User_Agent => $monitor->shortname,
 );
 
+# See if we should use the `ip` parameter to connect to. Otherwise use the `host` parameter. This is used to query name
+# based virtual hosts.
 if ($monitor->opts->get('ip')) {
+  $uri->host($monitor->opts->get('ip'));
   $headers->header(Host => $monitor->opts->get('host'));
 }
 
 my $ua = LWP::UserAgent->new(
-    cookie_jar => {},
-    default_headers => $headers,
+  cookie_jar => {},
+  default_headers => $headers,
+  ssl_opts => {
+    verify_hostname => 1,
+    SSL_hostname => $monitor->opts->get('host'),
+    SSL_verifycn_name => $monitor->opts->get('host'),
+  }
 );
 
 # Register debug handlers
