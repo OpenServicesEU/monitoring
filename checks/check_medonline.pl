@@ -108,7 +108,6 @@ $monitor->add_arg(
     help => "-d, --debug\n".
         "Print debug information",
     required => 0,
-    default => 0,
 );
 
 # Parse @ARGV and process arguments.

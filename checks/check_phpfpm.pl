@@ -92,7 +92,6 @@ $monitor->add_arg(
     help => "-r, --realm=STRING\n".
         "   Realm used for authentication.",
     required => 0,
-    default => '',
 );
 $monitor->add_arg(
     spec => 'path=s',
@@ -105,7 +104,6 @@ $monitor->add_arg(
     help => "-s, --ssl\n".
         "Use SSL (HTTPS) when connecting to TYPO3.",
     required => 0,
-    default => 0,
 );
 $monitor->add_arg(
     spec => 'ip|I=s',
@@ -127,7 +125,6 @@ $monitor->add_arg(
     help => "-d, --debug\n".
         "Print debug information",
     required => 0,
-    default => 0,
 );
 
 # Parse @ARGV and process arguments.
