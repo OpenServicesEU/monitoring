@@ -19,11 +19,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
-use lib "/usr/lib/nagios/plugins/";
-
-# Disable hostname verification for LWP::SSL because the CN of most
-# certificates does not match their internal hostname.
-BEGIN { $ENV{PERL_LWP_SSL_VERIFY_HOSTNAME} = 0 }
 
 use URI;
 use LWP::UserAgent;
@@ -47,6 +42,7 @@ my $monitor = Monitoring::Plugin->new(
         "-w <threshold> ".
         "-c <threshold> ".
         "[-P <port>] ".
+        "[-I <ip>] ".
         "[-s] ",
 );
 
