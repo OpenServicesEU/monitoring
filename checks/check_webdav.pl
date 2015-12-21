@@ -190,7 +190,7 @@ msg(
   $monitor->opts->get('verbose')
 );
 if (!$d->open(-url => $uri->as_string)) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     CRITICAL,
     sprintf(
       "Couldn't open %s: %s",
@@ -213,7 +213,7 @@ msg(
   $monitor->opts->get('verbose')
 );
 if (!$d->mkcol(-url => $url->as_string)) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     CRITICAL,
     sprintf(
       "Could not create directory %s: %s",
@@ -232,7 +232,7 @@ msg(
   $monitor->opts->get('verbose')
 );
 if (!$d->cwd("nagios")) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     CRITICAL,
     sprintf(
       "Could not change to directory %s :%s",
@@ -252,7 +252,7 @@ msg(
 );
 $fhup->autoflush(1);
 if (!open RANDOM, "</dev/urandom") {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     UNKNOWN,
     sprintf(
       "Internal check error at opening /dev/urandom: %s",
@@ -277,7 +277,7 @@ msg(
   $monitor->opts->get('verbose')
 );
 if (!$d->put(-local => $fhup->filename, -url => $url->as_string)) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     CRITICAL,
     sprintf(
       "Could not upload file to directory %s: %s",
@@ -303,7 +303,7 @@ msg(
   $monitor->opts->get('verbose')
 );
 if (!$d->get(-url => $url->as_string, -to => $fhdown->filename)) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     CRITICAL,
     sprintf(
       "Could not download file to directory %s: %s",
@@ -322,7 +322,7 @@ msg(
   $monitor->opts->get('verbose')
 );
 if (compare($fhdown->filename, $fhup->filename) != 0) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     CRITICAL,
     "Downloaded file differs from uploaded one"
   );
@@ -337,7 +337,7 @@ msg(
   $monitor->opts->get('verbose')
 );
 if (!$d->delete("testfile.nagios")) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     CRITICAL,
     sprintf(
       "Could not remove %s: %s",
@@ -356,7 +356,7 @@ msg(
   $monitor->opts->get('verbose')
 );
 if (!$d->cwd("..")) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     CRITICAL,
     sprintf(
       "Could not change to directory %s: %s",
@@ -377,7 +377,7 @@ msg(
   $monitor->opts->get('verbose')
 );
 if (!$d->delete("nagios")) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     CRITICAL,
     sprintf(
       "Could not remove directory %s: %s",
@@ -404,7 +404,7 @@ $monitor->add_perfdata(
 
 # Exit if WARNING or CRITICAL.
 if ($code != OK) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     $code,
     sprintf(
       "Check took to long with %dms",
@@ -413,7 +413,7 @@ if ($code != OK) {
   );
 }
 # Exit OK.
-$monitor->nagios_exit(
+$monitor->plugin_exit(
   OK,
   sprintf(
     "Check finished in %dms",

@@ -108,7 +108,7 @@ $monitor->getopts;
 
 my $ldap = Net::LDAP->new(
     sprintf("%s:%i", $monitor->opts->get('host'), $monitor->opts->get('port'))
-) or $monitor->nagios_exit(UNKNOWN,
+) or $monitor->plugin_exit(UNKNOWN,
     sprintf("Could not connect to host %s:%i: %s",
         $monitor->opts->get('host'),
         $monitor->opts->get('port'),
@@ -151,4 +151,4 @@ $monitor->add_perfdata(
 );
 
 # Exit with status
-$monitor->nagios_exit($code, sprintf("Found %i entries in %s", $result->count(), $monitor->opts->get('base')));
+$monitor->plugin_exit($code, sprintf("Found %i entries in %s", $result->count(), $monitor->opts->get('base')));

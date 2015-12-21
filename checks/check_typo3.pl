@@ -204,7 +204,7 @@ if (-e $cache) {
   $md5_url->path_segments($mirror_url->path_segments, "extensions.md5");
   my $md5_resp= $uat->get($md5_url->as_string);
   if ($md5_resp->is_error) {
-    $monitor->nagios_exit(
+    $monitor->plugin_exit(
       UNKNOWN,
       sprintf(
         "Could not fetch remote MD5 checksum: %s",
@@ -256,7 +256,7 @@ if (!defined $ext_bin) {
   );
   my $ext_resp = $uat->get($ext_url->as_string);
   if ($ext_resp->is_error) {
-    $monitor->nagios_exit(
+    $monitor->plugin_exit(
       UNKNOWN,
       sprintf(
         "Could not fetch remote extension archive: %s",
@@ -361,7 +361,7 @@ $monitor->add_perfdata(
 
 # See if we got a valid response from the TYPO3 nagios extension.
 if ($response->is_error) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     CRITICAL,
     sprintf(
       "TYPO3 returned a HTTP error: %s",
@@ -470,4 +470,4 @@ if (scalar @updates > 0) {
 }
 
 # Exit with final status and message.
-$monitor->nagios_exit($code, $message);
+$monitor->plugin_exit($code, $message);

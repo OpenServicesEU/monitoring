@@ -194,7 +194,7 @@ $nagios->add_perfdata(
 
 # See if we got a valid response from the TYPO3 nagios extension.
 if ($response->code != 200) {
-    $nagios->nagios_exit(
+    $nagios->plugin_exit(
         CRITICAL,
         sprintf(
             "Django returned an HTTP error: %i",
@@ -219,4 +219,4 @@ my $code = $nagios->check_threshold(check => $elapsed);
 my $message = sprintf("Request finished in %ims", $elapsed);
 
 # Exit with final status and message.
-$nagios->nagios_exit($code, $message);
+$nagios->plugin_exit($code, $message);

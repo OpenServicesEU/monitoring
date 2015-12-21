@@ -127,7 +127,7 @@ my %querymap = (
   "state" => sub {
     my ($ups, $monitor) = @_;
     if ($ups->Status() =~ /FSD/) {
-      $monitor->nagios_exit(
+      $monitor->plugin_exit(
         CRITICAL,
         sprintf(
           "UPS %s is in Forced Shutdown (FSD) state.",
@@ -135,7 +135,7 @@ my %querymap = (
         )
       );
     } elsif ($ups->Status() =~ /OB/) {
-      $monitor->nagios_exit(
+      $monitor->plugin_exit(
         CRITICAL,
         sprintf(
           "UPS %s is running on battery.",
@@ -143,7 +143,7 @@ my %querymap = (
         )
       );
     } else {
-      $monitor->nagios_exit(
+      $monitor->plugin_exit(
         OK,
         sprintf(
           "UPS %s is doing fine."
@@ -164,7 +164,7 @@ my %querymap = (
       uom => "%",
     );
     if ($code != OK) {
-      $monitor->nagios_exit(
+      $monitor->plugin_exit(
         $code,
         sprintf(
           "UPS %s is running low on battery (%d%%).",
@@ -174,7 +174,7 @@ my %querymap = (
       );
     }
     # Exit OK.
-    $monitor->nagios_exit(
+    $monitor->plugin_exit(
       OK,
       sprintf(
         "UPS %s is charged (%d%%).",
@@ -195,7 +195,7 @@ my %querymap = (
       uom => "%",
     );
     if ($code != OK=) {
-      $monitor->nagios_exit(
+      $monitor->plugin_exit(
         $code,
         sprintf(
           "UPS %s is on high load (%d%%).",
@@ -205,7 +205,7 @@ my %querymap = (
       );
     }
     # Exit OK.
-    $monitor->nagios_exit(
+    $monitor->plugin_exit(
       OK,
       sprintf(
         "UPS %s is on normal load (%d%%).",
@@ -226,7 +226,7 @@ my %querymap = (
       uom => "V",
     );
     if ($code != OK) {
-      $monitor->nagios_exit(
+      $monitor->plugin_exit(
         $code,
         sprintf(
           "UPS %s is on out-of-bounds line voltage (%dV).",
@@ -236,7 +236,7 @@ my %querymap = (
       );
     }
     # Exit OK.
-    $monitor->nagios_exit(
+    $monitor->plugin_exit(
       OK,
       sprintf(
         "UPS %s is on normal line voltage (%dV).",
@@ -257,7 +257,7 @@ my %querymap = (
       uom => "DegC",
     );
     if ($code != OK) {
-      $monitor->nagios_exit(
+      $monitor->plugin_exit(
         $code,
         sprintf(
           "UPS %s is on out-of-bounds temperature (%dDegC).",
@@ -267,7 +267,7 @@ my %querymap = (
       );
     }
     # Exit OK.
-    $monitor->nagios_exit(
+    $monitor->plugin_exit(
       OK,
       sprintf(
         "UPS %s is on normal temperature (%d°C).",
@@ -281,7 +281,7 @@ my %querymap = (
 if (exists $querymap{$monitor->opts->get("query")}) {
   $querymap{$monitor->opts->get("query")}($ups, $monitor);
 } else {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     UNKNOWN,
     sprintf(
       "Unknown query type: %s",

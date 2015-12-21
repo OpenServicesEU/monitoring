@@ -159,9 +159,9 @@ check_response($monitor, $m);
 
 my $content = $m->content;
 my ($userid) = ($content =~ /var userId = \"([\w\_]+)\";/);
-$monitor->nagios_exit(CRITICAL, "Could not authenticate as ".$monitor->opts->{login}) unless ($userid eq $monitor->opts->{login});
+$monitor->plugin_exit(CRITICAL, "Could not authenticate as ".$monitor->opts->{login}) unless ($userid eq $monitor->opts->{login});
 my ($firstName, $lastName) = ($content =~ /<TITLE>Novell GroupWise \((\w+) (\w+)\)<\/TITLE>/);
-$monitor->nagios_exit(CRITICAL, "Could not authenticate as ".$monitor->opts->{login}) unless (defined $lastName and defined $firstName);
+$monitor->plugin_exit(CRITICAL, "Could not authenticate as ".$monitor->opts->{login}) unless (defined $lastName and defined $firstName);
 
 # End timer
 my $elapsed = tv_interval($timer) * 1000;
@@ -180,13 +180,13 @@ $monitor->add_perfdata(
 );
 
 # Exit if WARNING or CRITICAL.
-$monitor->nagios_exit($code, "Check took to long with ${elapsed}ms for $firstName $lastName") if $code != OK;
+$monitor->plugin_exit($code, "Check took to long with ${elapsed}ms for $firstName $lastName") if $code != OK;
 # Exit OK.
-$monitor->nagios_exit(OK, "Check finished in ${elapsed}ms for $firstName $lastName");
+$monitor->plugin_exit(OK, "Check finished in ${elapsed}ms for $firstName $lastName");
 
 sub check_response {
     my ($monitor, $m) = @_;
     if (!$m->success()) {
-        $monitor->nagios_exit(CRITICAL, "Could not fetch ".$m->uri().": ".$m->status())
+        $monitor->plugin_exit(CRITICAL, "Could not fetch ".$m->uri().": ".$m->status())
     }
 }

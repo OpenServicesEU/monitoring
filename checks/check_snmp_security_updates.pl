@@ -94,7 +94,7 @@ msg(
 
 my $count = $nagios->get($nagios->opts->get("oid"));
 if (!exists $count->{$nagios->opts->get("oid")}) {
-    $nagios->nagios_exit(UNKNOWN, sprintf("No security update information found at %s", $nagios->opts->get("oid")));
+    $nagios->plugin_exit(UNKNOWN, sprintf("No security update information found at %s", $nagios->opts->get("oid")));
 }
 $nagios->add_perfdata(
     label => "updates",
@@ -102,7 +102,7 @@ $nagios->add_perfdata(
 );
 if ($count->{$nagios->opts->get("oid")} == 0) {
     unlink $filename;
-    $nagios->nagios_exit(OK, "No security updates pending");
+    $nagios->plugin_exit(OK, "No security updates pending");
 }
 
 msg(
@@ -121,7 +121,7 @@ my @packagenames = map { $packages->{$nagios->opts->get("oid")}->{$_} } keys %{$
 
 # Tie persistent storage to keep track of pending updates over time.
 tie %h, "DB_File", $filename, O_RDWR|O_CREAT, 0640, $DB_HASH or
-    $nagios->nagios_exit(UNKNOWN, sprintf("Cannot open file %s (%s)", $filename, $!));
+    $nagios->plugin_exit(UNKNOWN, sprintf("Cannot open file %s (%s)", $filename, $!));
 
 foreach my $key (keys %h) {
     msg(
@@ -163,7 +163,7 @@ untie %h;
 
 my $status = @warning ? @critical ? CRITICAL : WARNING : OK;
 
-$nagios->nagios_exit(
+$nagios->plugin_exit(
     $status,
     sprintf(
         "Pending updates: %d\n%s",

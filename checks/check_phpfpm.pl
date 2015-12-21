@@ -204,7 +204,7 @@ my $response = $ua->get($uri->as_string);
 
 # Fail with CRITICAL if we received any HTTP status code other than 200.
 if ($response->is_error) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     CRITICAL,
     'Unable to fetch FPM response'
   );
@@ -218,7 +218,7 @@ my %codemap = (
     my $timer = [gettimeofday];
     my $elapsed = tv_interval($timer) * 1000;
     if ($response->content ne "pong") {
-      $monitor->nagios_exit(
+      $monitor->plugin_exit(
         CRITICAL,
         'Invalid response to PING request'
       );
@@ -229,7 +229,7 @@ my %codemap = (
       threshold => $monitor->threshold,
       uom => 'ms',
     );
-    $monitor->nagios_exit(
+    $monitor->plugin_exit(
       OK,
       sprintf(
         'Received PING response in %d milliseconds',
@@ -255,7 +255,7 @@ my %codemap = (
       uom => 'requests',
     );
     my $code = $monitor->check_threshold($maximum);
-    $monitor->nagios_exit(
+    $monitor->plugin_exit(
       $code,
       sprintf(
         '%s: maximum requests in queue: %d',
@@ -282,7 +282,7 @@ my %codemap = (
       uom => 'processes',
     );
     my $code = $monitor->check_threshold($maximum);
-    $monitor->nagios_exit(
+    $monitor->plugin_exit(
       $code,
       sprintf(
         '%s: maximum active processes: %d',

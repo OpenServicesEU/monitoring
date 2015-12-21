@@ -189,4 +189,4 @@ foreach my $variant (@expected) {
 }
 
 # Pick higher code from results and join messages
-$monitor->nagios_exit(max(map { $_->{code} } @result), join "; ",map { $_->{message} } @result);
+$monitor->plugin_exit(max(map { $_->{code} } @result), join "; ",map { $_->{message} } @result);

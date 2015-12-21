@@ -274,7 +274,7 @@ check_response($monitor, $response);
 my $content = $response->content;
 my ($lastName, $firstName) = ($content =~ /Visitenkarte von (\w+), (\w+)/);
 if (!defined $lastName or !defined $firstName) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     CRITICAL,
     sprintf(
       "Could not authenticate as %s",
@@ -301,7 +301,7 @@ $monitor->add_perfdata(
 
 # Exit if WARNING or CRITICAL.
 if ($code != OK) {
-  $monitor->nagios_exit(
+  $monitor->plugin_exit(
     $code,
     sprintf(
       "Check took to long with %dms for %s %s",
@@ -313,7 +313,7 @@ if ($code != OK) {
 }
 
 # Exit OK.
-$monitor->nagios_exit(
+$monitor->plugin_exit(
   OK,
   sprintf(
     "Check finished in %dms for %s %s",
@@ -326,7 +326,7 @@ $monitor->nagios_exit(
 sub check_response {
   my ($monitor, $response) = @_;
   if ($response->is_error) {
-    $monitor->nagios_exit(
+    $monitor->plugin_exit(
       CRITICAL,
       sprintf(
         "Could not fetch %s: %s",
