@@ -34,14 +34,14 @@ my $monitor = Monitoring::Plugin->new(
     version => "0.3",
     url => "http://openservices.at/services/infrastructure-monitoring/dns",
     usage => "Usage: %s ".
-        "[-v|--verbose] ".
-        "[-t <timeout>] ".
         "-H <host> ".
-        "-p <port> ".
         "-q <query> ".
-        "[-e <expected>] ".
         "-w <threshold> ".
-        "-c <threshold> ",
+        "-c <threshold> ".
+        "[-e <expected>] ".
+        "[-p <port>] ".
+        "[-t <timeout>] ".
+        "[-v|--verbose]",
 );
 
 # add valid command line options and build them into your usage/help documentation.
