@@ -54,12 +54,14 @@ $monitor->add_arg(
 $monitor->add_arg(
     spec => 'warning|w=i',
     help => "-w, --warning=INTEGER:INTEGER\n".
+        "Time in milliseconds that the query is allowed to take before this check returns WARNING.\n".
         "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
     required => 1,
 );
 $monitor->add_arg(
     spec => 'critical|c=i',
     help => "-c, --critical=INTEGER:INTEGER\n".
+        "Time in milliseconds that the query is allowed to take before this check returns CRITICAL.\n".
         "See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.",
     required => 1,
 );
