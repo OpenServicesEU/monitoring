@@ -118,6 +118,12 @@ my $res = Net::DNS::Resolver->new;
 $res->nameservers($monitor->opts->get('host'));
 $res->port($monitor->opts->get('port'));
 
+# Set timeout for both TCP and UDP if one was specified.
+if ($monitor->opts->get('timeout')) {
+  $res->tcp_timeout($monitor->opts->get('timeout'));
+  $res->udp_timeout($monitor->opts->get('timeout'));
+}
+
 # Create DNS request packet.
 my $req = new Net::DNS::Packet($query{record}, $query{type}, $query{class});
 
