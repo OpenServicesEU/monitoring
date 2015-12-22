@@ -101,6 +101,13 @@ $monitor->add_arg(
   default => 143,
 );
 $monitor->add_arg(
+  spec => 'ca-file|C=s',
+  help => "-C, --ca-file=STRING\n".
+  "PAth to CA file (default: /etc/ssl/certs/ca-certificates.crt).",
+  required => 0,
+  default => "/etc/ssl/certs/ca-certificates.crt",
+);
+$monitor->add_arg(
   spec => 'ssl|s',
   help => "-s, --ssl\n".
   "Enable SSL.",
@@ -134,7 +141,7 @@ if ($monitor->opts->get('ssl')) {
   $options{use_ssl} = 1;
   $options{ssl_version} = "SSLv23:!SSLv3:!SSLv2";
   $options{ssl_options} = [
-    SSL_ca_path => "/etc/ssl/certs/",
+    SSL_ca_file => $monitor->opts->get('ca-file'),
     SSL_verify_mode => IO::Socket::SSL::SSL_VERIFY_PEER(),
     SSL_version => "SSLv23:!SSLv3:!SSLv2",
   ];
