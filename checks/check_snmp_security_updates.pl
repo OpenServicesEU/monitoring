@@ -28,146 +28,202 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
-use lib "/usr/local/nagios/libexec/";
+use lib '/usr/local/nagios/libexec/';
 
+use POSIX;
 use Log::Message::Simple qw[:STD :CARP];
 
-use Nagios::Plugin::SNMP;
-use Nagios::Plugin::Performance use_die => 1;
+use Monitoring::Plugin;
+use Monitoring::Plugin::Performance use_die => 1;
 
 use DB_File;
+use Net::SNMP;
 
-my $nagios = Nagios::Plugin::SNMP->new(
-    shortname => "SECURITY UPDATES",
-    version => "0.1",
-    url => "http://openservices.at/services/infrastructure-monitoring/security_updates",
-    usage => "Usage: %s ".
-        "[-v|--verbose] ".
-        "[-t <timeout>] ".
-        "-H <host> ".
-        "-l <login> ".
-        "-p <password> ".
-        "-o <port> ".
-        "-u <ups> ".
-        "-q <query> ".
-        "[-o <oid>] ".
-        "[-w <threshold>] ".
-        "[-c <threshold>] ",
+my $monitor = Monitoring::Plugin->new(
+  shortname => 'SECURITY UPDATES',
+  version => '0.2',
+  url => 'http://openservices.at/services/infrastructure-monitoring/security_updates',
+  usage => 'Usage: %s '.
+    '[-v|--verbose] '.
+    '[-t <timeout>] '.
+    '-H <host> '.
+    '-C <community> '.
+    '[-o <oid>] '.
+    '[-s <path>] '.
+    '[-P <port>] '.
+    '[-w <threshold>] '.
+    '[-c <threshold>] ',
 );
 
 # add valid command line options and build them into your usage/help documentation.
-$nagios->add_arg(
-    spec => 'oid|o=s',
-    help => "-o, --oid=OID\n".
-        "   Base OID at which package updates are found (default: .1.3.6.1.4.1.36425.256.2).",
-    required => 0,
-    default => ".1.3.6.1.4.1.36425.256.2",
+$monitor->add_arg(
+  spec => 'warning|w=i',
+  help => "-w, --warning=INTEGER:INTEGER\n".
+    'See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.',
+  required => 1
 );
-$nagios->add_arg(
-    spec => 'store|s=s',
-    help => "-s, --store=PATH\n".
-        "   Path to the file where package tracing information can be stored.",
-    required => 0,
-    default => "/var/lib/snmp/security_updates",
+$monitor->add_arg(
+  spec => 'critical|c=i',
+  help => "-c, --critical=INTEGER:INTEGER\n".
+    'See http://nagiosplug.sourceforge.net/developer-guidelines.html#THRESHOLDFORMAT for the threshold format.',
+  required => 1
+);
+$monitor->add_arg(
+  spec => 'hostname|H=s',
+  help => "-H, --hostname=hostname\n".
+    'Hostname of SNMP agent.',
+  required => 1
+);
+$monitor->add_arg(
+  spec => 'community|C=s',
+  help => "-C, --community=secret\n".
+    'SNMP community string.',
+  required => 1
+);
+$monitor->add_arg(
+  spec => 'oid|o=s',
+  help => "-o, --oid=OID\n".
+    'Base OID at which package updates are found (default: .1.3.6.1.4.1.36425.256.2).',
+  required => 0,
+  default => '.1.3.6.1.4.1.36425.256.2'
+);
+$monitor->add_arg(
+  spec => 'store|s=s',
+  help => "-s, --store=PATH\n".
+    'Path to the file where package tracing information can be stored.',
+  required => 0,
+  default => '/var/lib/snmp/security_updates'
+);
+$monitor->add_arg(
+  spec => 'port|P=i',
+  help => "-P, --port=INT\n".
+    'SNMP port.',
+  required => 0,
+  default => 161
 );
 
 # Parse @ARGV and process arguments.
-$nagios->getopts;
+$monitor->getopts;
 
 my $filename = sprintf(
-    "%s/%s-%d-SNMP%s.db",
-    $nagios->opts->get("store"),
-    $nagios->opts->get("hostname"),
-    $nagios->opts->get("port"),
-    $nagios->opts->get("snmp-version")
+  '%s/%s-%d.db',
+  $monitor->opts->get('store'),
+  $monitor->opts->get('hostname'),
+  $monitor->opts->get('port')
 );
 
 my %h;
 
 msg(
-    sprintf(
-        "Persistent store: %s",
-        $filename
-    ),
-    $nagios->opts->get('verbose')
+  sprintf(
+    'Persistent store: %s',
+    $filename
+  ),
+  $monitor->opts->get('verbose')
 );
-
-my $count = $nagios->get($nagios->opts->get("oid"));
-if (!exists $count->{$nagios->opts->get("oid")}) {
-    $nagios->plugin_exit(UNKNOWN, sprintf("No security update information found at %s", $nagios->opts->get("oid")));
-}
-$nagios->add_perfdata(
-    label => "updates",
-    value => $count->{$nagios->opts->get("oid")},
-);
-if ($count->{$nagios->opts->get("oid")} == 0) {
-    unlink $filename;
-    $nagios->plugin_exit(OK, "No security updates pending");
-}
 
 msg(
-    sprintf(
-        "Connecting to %s:%d with SNMP%s",
-        $nagios->opts->get("hostname"),
-        $nagios->opts->get("port"),
-        $nagios->opts->get("snmp-version")
-    ),
-    $nagios->opts->get('verbose')
+  sprintf(
+    'Connecting to %s:%d',
+    $monitor->opts->get('hostname'),
+    $monitor->opts->get('port')
+  ),
+  $monitor->opts->get('verbose')
 );
 
-my $packages = $nagios->walk($nagios->opts->get("oid"));
+my ($snmp, $error) = Net::SNMP->session(
+  -hostname => $monitor->opts->get('hostname'),
+  -community => $monitor->opts->get('community'),
+  -port => $monitor->opts->get('port')
+);
 
-my @packagenames = map { $packages->{$nagios->opts->get("oid")}->{$_} } keys %{$packages->{$nagios->opts->get("oid")}};
+if (!defined($snmp)) {
+  $monitor->nagios_exit(UNKNOWN, sprintf('Could not connect: %s', $error));
+}
+
+my $count = $snmp->get_request($monitor->opts->get('oid'));
+if (!exists $count->{$monitor->opts->get('oid')}) {
+  $monitor->nagios_exit(UNKNOWN, sprintf('No security update information found at %s', $monitor->opts->get('oid')));
+}
+$monitor->add_perfdata(
+  label => 'updates',
+  value => $count->{$monitor->opts->get('oid')},
+);
+if ($count->{$monitor->opts->get('oid')} == 0) {
+  unlink $filename;
+  $monitor->nagios_exit(OK, 'No security updates pending');
+}
+
+my $packages = {};
+my $oid = $monitor->opts->get('oid');
+
+while (my $response = $snmp->get_next_request($oid)) {
+  $oid = (keys %$response)[0];
+  if (substr($oid, 0, length $monitor->opts->get('oid')) ne $monitor->opts->get('oid')) {
+    last;
+  }
+  msg(
+    sprintf(
+      'Walking OID %s: %s',
+      $oid,
+      $response->{$oid}
+    ),
+    $monitor->opts->get('verbose')
+  );
+  $packages->{$oid} = $response->{$oid}
+
+};
+
+my @packagenames = values %{$packages};
 
 # Tie persistent storage to keep track of pending updates over time.
-tie %h, "DB_File", $filename, O_RDWR|O_CREAT, 0640, $DB_HASH or
-    $nagios->plugin_exit(UNKNOWN, sprintf("Cannot open file %s (%s)", $filename, $!));
+tie %h, 'DB_File', $filename, O_RDWR|O_CREAT, 0640, $DB_HASH or
+$monitor->nagios_exit(UNKNOWN, sprintf('Cannot open file %s (%s)', $filename, $!));
 
 foreach my $key (keys %h) {
+  msg(
+    sprintf(
+      'Previously seen update: %s (%s)',
+      $key,
+      scalar localtime $h{$key}
+    ),
+    $monitor->opts->get('verbose')
+  );
+  if (!grep { $key eq $_ } @packagenames) {
     msg(
-        sprintf(
-            "Previously seen update: %s (%s)",
-            $key,
-            scalar localtime $h{$key}
-        ),
-        $nagios->opts->get('verbose')
+      sprintf(
+        'Forgetting update: %s',
+        $key
+      ),
+      $monitor->opts->get('verbose')
     );
-    if (!grep { $key eq $_ } @packagenames) {
-        msg(
-            sprintf(
-                "Forgetting update: %s",
-                $key
-            ),
-            $nagios->opts->get('verbose')
-        );
-        delete $h{$key};
-    }
+    delete $h{$key};
+  }
 }
 foreach my $key (@packagenames) {
-    if (!grep { $key eq $_ } keys %h) {
-        msg(
-            sprintf(
-                "Remembering update: %s",
-                $key
-            ),
-            $nagios->opts->get('verbose')
-        );
-        $h{$key} = time();
-    }
+  if (!grep { $key eq $_ } keys %h) {
+    msg(
+      sprintf(
+        'Remembering update: %s',
+        $key
+      ),
+      $monitor->opts->get('verbose')
+    );
+    $h{$key} = time();
+  }
 }
 
-my @critical = grep { $h{$_} < time() - $nagios->opts->get("critical") * 86400 } keys %h;
-my @warning = grep { $h{$_} < time() - $nagios->opts->get("warning") * 86400 } keys %h;
-
-untie %h;
+my @critical = grep { $h{$_} < time() - $monitor->opts->get('critical') * 86400 } keys %h;
+my @warning = grep { $h{$_} < time() - $monitor->opts->get('warning') * 86400 } keys %h;
 
 my $status = @warning ? @critical ? CRITICAL : WARNING : OK;
 
-$nagios->plugin_exit(
-    $status,
-    sprintf(
-        "Pending updates: %d\n%s",
-        $count->{$nagios->opts->get("oid")},
-        join ",\n", sort @packagenames
-    )
+my $message = sprintf(
+  "Pending updates: %d\n%s",
+  $count->{$monitor->opts->get('oid')},
+  join ",\n", sort map { sprintf("%s: %s", $_, scalar localtime $h{$_}) } keys %h
 );
+
+untie %h;
+
+$monitor->nagios_exit($status, $message);
