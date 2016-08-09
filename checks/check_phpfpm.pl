@@ -200,7 +200,9 @@ if ($monitor->opts->get('login') && $monitor->opts->get('password')) {
 }
 
 # Fetch the data.
+my $timer = [gettimeofday];
 my $response = $ua->get($uri->as_string);
+my $elapsed = tv_interval($timer) * 1000;
 
 # Fail with CRITICAL if we received any HTTP status code other than 200.
 if ($response->is_error) {
@@ -214,9 +216,7 @@ if ($response->is_error) {
 # response content.
 my %codemap = (
   'ping' => sub {
-    my ($response) = @_;
-    my $timer = [gettimeofday];
-    my $elapsed = tv_interval($timer) * 1000;
+    my ($response, $elapsed) = @_;
     if ($response->content ne "pong") {
       $monitor->plugin_exit(
         CRITICAL,
@@ -238,7 +238,7 @@ my %codemap = (
     );
   },
   'queue' => sub {
-    my ($response) = @_;
+    my ($response, $elapsed) = @_;
     my $status = XML::LibXML->load_xml(string => $response->content);
     my $pool = $status->findvalue('/status/pool');
     my $pending = $status->findvalue('/status/listen-queue');
@@ -265,7 +265,7 @@ my %codemap = (
     );
   },
   'processes' => sub {
-    my ($response) = @_;
+    my ($response, $elapsed) = @_;
     my $status = XML::LibXML->load_xml(string => $response->content);
     my $pool = $status->findvalue('/status/pool');
     my $active = $status->findvalue('/status/active-processes');
@@ -294,4 +294,4 @@ my %codemap = (
 );
 
 # Fetch check subroutine based on the `mode` parameter and call it with the response.
-$codemap{$monitor->opts->get('mode')}($response);
+$codemap{$monitor->opts->get('mode')}($response, $elapsed);
