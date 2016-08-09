@@ -28,7 +28,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use strict;
-use lib '/usr/local/nagios/libexec/';
 
 use POSIX;
 use Log::Message::Simple qw[:STD :CARP];
@@ -41,7 +40,7 @@ use Net::SNMP;
 
 my $monitor = Monitoring::Plugin->new(
   shortname => 'SECURITY UPDATES',
-  version => '0.2',
+  version => '0.3',
   url => 'http://openservices.at/services/infrastructure-monitoring/security_updates',
   usage => 'Usage: %s '.
     '[-v|--verbose] '.
@@ -92,7 +91,7 @@ $monitor->add_arg(
   help => "-s, --store=PATH\n".
     'Path to the file where package tracing information can be stored.',
   required => 0,
-  default => '/var/lib/snmp/security_updates'
+  default => '/var/cache/monitoring/security_updates'
 );
 $monitor->add_arg(
   spec => 'port|P=i',
