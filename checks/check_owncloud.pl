@@ -32,7 +32,7 @@ use Monitoring::Plugin::Performance use_die => 1;
 
 my $monitor = Monitoring::Plugin->new(
     shortname => "OwnCloud",
-    version => "0.1",
+    version => "0.2",
     url => "http://openservices.at/services/infrastructure-monitoring/owncloud",
     usage => "Usage: %s ".
         "[-v|--verbose] ".
@@ -43,7 +43,7 @@ my $monitor = Monitoring::Plugin->new(
         "-c <threshold> ".
         "-m (status) ".
         "[-P <port>] ".
-        "[-L <login>] ".
+        "[-l <login>] ".
         "[-p <password>] ".
         "[-r <realm>] ".
         "[-s|--ssl] ".
@@ -76,8 +76,8 @@ $monitor->add_arg(
     required => 1,
 );
 $monitor->add_arg(
-    spec => 'login|L=s',
-    help => "-L, --login=STRING\n".
+    spec => 'login|l=s',
+    help => "-l, --login=STRING\n".
         "Username to login.",
     required => 0,
 );
