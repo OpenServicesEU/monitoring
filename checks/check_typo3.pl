@@ -183,99 +183,6 @@ my $headers = HTTP::Headers->new(
   User_Agent => $monitor->shortname,
 );
 
-my $uat = LWP::UserAgent->new(
-  cookie_jar => undef,
-  default_headers => $headers,
-);
-
-
-my $mirror_url = URI->new($monitor->opts->get("mirror"));
-
-my $cache = File::Spec->catfile(
-  $monitor->opts->get("cache"),
-  "extensions.xml.gz"
-);
-
-my $ext_bin;
-
-# Check if a caching file already exists.
-if (-e $cache) {
-  my $md5_url = $mirror_url->clone;
-  $md5_url->path_segments($mirror_url->path_segments, "extensions.md5");
-  my $md5_resp= $uat->get($md5_url->as_string);
-  if ($md5_resp->is_error) {
-    $monitor->plugin_exit(
-      UNKNOWN,
-      sprintf(
-        "Could not fetch remote MD5 checksum: %s",
-        $md5_url->as_string
-      )
-    );
-  }
-  msg(
-    sprintf(
-      "Remote extensions.md5: %s",
-      $md5_resp->content
-    ),
-    $monitor->opts->get('verbose')
-  );
-  my $ctx = Digest::MD5->new;
-  open my $fh, '<', $cache;
-  binmode ($fh);
-  $ctx->addfile($fh);
-  my $md5_local = $ctx->hexdigest;
-  close $fh;
-  msg(
-    sprintf(
-      "Local MD5 for extensions.xml.gz: %s",
-      $ctx->hexdigest
-    ),
-    $monitor->opts->get('verbose')
-  );
-  if ($md5_resp->content eq $md5_local) {
-    msg(
-      "Local extensions.xml.gz is up to date.",
-      $monitor->opts->get('verbose')
-    );
-    $ext_bin = read_file($cache, binmode => ':raw');
-  } else {
-    msg(
-      "Local extensions.xml.gz is out of date, purging from cache.",
-      $monitor->opts->get('verbose')
-    );
-    unlink $cache;
-  }
-}
-
-# See if we got some content from caching, if not, fetch the whole extension archive.
-if (!defined $ext_bin) {
-  my $ext_url = $mirror_url->clone;
-  $ext_url->path_segments(
-    $mirror_url->path_segments,
-    "extensions.xml.gz"
-  );
-  my $ext_resp = $uat->get($ext_url->as_string);
-  if ($ext_resp->is_error) {
-    $monitor->plugin_exit(
-      UNKNOWN,
-      sprintf(
-        "Could not fetch remote extension archive: %s",
-        $ext_url->as_string
-      )
-    );
-  }
-  if ($monitor->opts->get("cache")) {
-    open my $fh, ">", $cache;
-    binmode ($fh);
-    print $fh $ext_resp->content;
-    close $fh;
-  }
-  $ext_bin = $ext_resp->content;
-}
-
-my $extensions = XML::LibXML->load_xml(
-  string => Compress::Zlib::memGunzip($ext_bin)
-);
 
 my $uri = URI->new("http://");
 
@@ -341,7 +248,7 @@ msg(
   sprintf(
     "Connecting to TYPO3 on %s with user %s",
     $uri->as_string,
-    $monitor->opts->get("login")
+    $monitor->opts->get("login") || ''
   ),
   $monitor->opts->get('verbose')
 );
@@ -370,6 +277,121 @@ if ($response->is_error) {
   );
 }
 
+my $uat = LWP::UserAgent->new(
+  cookie_jar => undef,
+  default_headers => $headers,
+);
+
+
+my $mirror_url = URI->new($monitor->opts->get("mirror"));
+
+msg(
+  sprintf(
+    "Using mirror: %s",
+    $mirror_url->as_string
+  ),
+  $monitor->opts->get('verbose')
+);
+
+my $cache = File::Spec->catfile(
+  $monitor->opts->get("cache"),
+  "extensions.xml.gz"
+);
+
+my $ext_bin;
+
+# Check if a caching file already exists.
+if (-e $cache) {
+  my $md5_url = $mirror_url->clone;
+  $md5_url->path_segments($mirror_url->path_segments, "extensions.md5");
+  msg(
+    sprintf(
+      "Downloading extensions.md5: %s",
+      $md5_url->as_string
+    ),
+    $monitor->opts->get('verbose')
+  );
+  my $md5_resp= $uat->get($md5_url->as_string);
+  if ($md5_resp->is_error) {
+    $monitor->plugin_exit(
+      UNKNOWN,
+      sprintf(
+        "Could not fetch remote MD5 checksum: %s",
+        $md5_url->as_string
+      )
+    );
+  }
+  msg(
+    sprintf(
+      "Remote extensions.md5: %s",
+      $md5_resp->content
+    ),
+    $monitor->opts->get('verbose')
+  );
+  my $ctx = Digest::MD5->new;
+  open my $fh, '<', $cache;
+  binmode ($fh);
+  $ctx->addfile($fh);
+  my $md5_local = $ctx->hexdigest;
+  close $fh;
+  msg(
+    sprintf(
+      "Local MD5 for extensions.xml.gz: %s",
+      $ctx->hexdigest
+    ),
+    $monitor->opts->get('verbose')
+  );
+  if ($md5_resp->content eq $md5_local) {
+    msg(
+      "Local extensions.xml.gz is up to date.",
+      $monitor->opts->get('verbose')
+    );
+    $ext_bin = read_file($cache, binmode => ':raw');
+  } else {
+    msg(
+      "Local extensions.xml.gz is out of date, purging from cache.",
+      $monitor->opts->get('verbose')
+    );
+    unlink $cache;
+  }
+}
+
+# See if we got some content from caching, if not, fetch the whole extension archive.
+if (!defined $ext_bin) {
+  my $ext_url = $mirror_url->clone;
+  $ext_url->path_segments(
+    $mirror_url->path_segments,
+    "extensions.xml.gz"
+  );
+  msg(
+    sprintf(
+      "Download extensions.xml.gz: %s",
+      $ext_url->as_string
+    ),
+    $monitor->opts->get('verbose')
+  );
+  my $ext_resp = $uat->get($ext_url->as_string);
+  if ($ext_resp->is_error) {
+    $monitor->plugin_exit(
+      UNKNOWN,
+      sprintf(
+        "Could not fetch remote extension archive: %s",
+        $ext_url->as_string
+      )
+    );
+  }
+  if ($monitor->opts->get("cache")) {
+    open my $fh, ">", $cache;
+    binmode ($fh);
+    print $fh $ext_resp->content;
+    close $fh;
+  }
+  $ext_bin = $ext_resp->content;
+}
+
+my $extensions = XML::LibXML->load_xml(
+  string => Compress::Zlib::memGunzip($ext_bin)
+);
 # Hash that will hold the parsed response data.
 my %data;
 
