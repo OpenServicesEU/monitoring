@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright 2015 Michael Fladischer
+# Copyright 2019 Michael Fladischer
 # OpenServices e.U.
 # office@openservices.at
 #
@@ -31,7 +31,7 @@ use Monitoring::Plugin::Performance use_die => 1;
 
 my $monitor = Monitoring::Plugin->new(
     shortname => "DNS",
-    version => "0.3",
+    version => "0.4",
     url => "http://openservices.at/services/infrastructure-monitoring/dns",
     usage => "Usage: %s ".
         "-H <host> ".
