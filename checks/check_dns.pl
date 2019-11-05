@@ -86,10 +86,10 @@ $monitor->add_arg(
 );
 
 my %mapping = (
-    'CNAME' => 'cname',
-    'A' => 'address',
-    'AAAA' => 'address',
-    'MX' => 'exchange',
+    'CNAME' => sub { return shift->{cname}->{name} },
+    'A' => sub { return shift->address },
+    'AAAA' => sub { return shift->address },
+    'MX' => sub {return shift->{exchange}->{name} },
 );
 
 # Parse @ARGV and process arguments.
@@ -164,7 +164,7 @@ foreach my $variant (@expected) {
     if (grep {
         $_->type eq $variant->{type} &&
         $_->class eq $variant->{class} &&
-        $_->{$mapping{$variant->{type}}} eq $variant->{record}
+        $mapping{$variant->{type}}($_) eq $variant->{record}
         } $answer->answer) {
         # We found at least one matching record.
         push @result, {
