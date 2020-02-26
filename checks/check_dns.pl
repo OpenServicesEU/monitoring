@@ -133,6 +133,9 @@ my $timer = [gettimeofday];
 my $answer = $res->send($req);
 # Calculate the time it took for the resolver to answer our request.
 my $elapsed = tv_interval($timer) * 1000;
+if (!$answer) {
+    $monitor->plugin_exit(CRITICAL, "No reply from DNS");
+}
 msg("Received DNS response:\n".$answer->string, $monitor->opts->get('verbose'));
 
 my @result;
